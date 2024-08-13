@@ -1,0 +1,80 @@
+To mandate additional reviewers when there's a change in a specific folder or file in Bitbucket, you can use *branch permissions* and *merge checks* with a bit of customization through Bitbucket's pipeline or by configuring a script or hook in the repository. 
+
+Here's a step-by-step approach:
+
+### 1. **Use Branch Permissions:**
+   - Go to **Repository Settings** > **Branch Permissions**.
+   - Set up permissions for the branch that requires mandatory reviewers.
+   - Specify the users or groups that must approve the pull request before merging.
+
+### 2. **Create a Merge Check:**
+   - In **Repository Settings**, under **Merge Checks**, you can enforce that a pull request must have a minimum number of approvals before merging.
+   - This setting applies globally or per branch.
+
+### 3. **Use Code Owners (if applicable):**
+   - Bitbucket does not natively support CODEOWNERS like GitHub, but you can mimic this behavior with custom scripts or third-party integrations.
+   - If you want to enforce code owners or specific reviewers for certain files/folders, you might need to write a script that automatically adds reviewers based on file paths in the pull request.
+
+### 4. **Custom Script Approach:**
+   - **Write a Pre-Receive Hook:**
+     - If you have admin access to the repository, you can write a pre-receive hook that checks if specific files or folders are changed in a pull request.
+     - Based on the changes, the script can either fail the merge or enforce adding certain reviewers.
+
+   - **Example Bash Script:**
+     - This script checks if a specific folder or file is changed, and if so, ensures that additional reviewers are added.
+     
+     ```bash
+     #!/bin/bash
+     
+     # Define the folder or files to watch
+     WATCHED_PATH="src/sensitive-folder"
+     
+     # Get the list of changed files in the pull request
+     CHANGED_FILES=$(git diff --name-only origin/main)
+     
+     # Check if any of the watched files/folders are changed
+     if echo "$CHANGED_FILES" | grep -q "$WATCHED_PATH"; then
+         echo "Changes detected in $WATCHED_PATH."
+         
+         # Add your logic here to enforce additional reviewers or block the merge
+         # For example, you could check the number of approvals:
+         
+         APPROVALS=$(curl -s -H "Authorization: Bearer $BITBUCKET_TOKEN" \
+            https://api.bitbucket.org/2.0/repositories/{workspace}/{repo_slug}/pullrequests/{pull_request_id}/ \
+            | jq '.participants[] | select(.approved == true)' | wc -l)
+         
+         if [ "$APPROVALS" -lt 2 ]; then
+             echo "Not enough approvals. At least 2 approvals are required for changes in $WATCHED_PATH."
+             exit 1
+         fi
+     fi
+     
+     exit 0
+     ```
+
+### 5. **Bitbucket Pipelines (Optional):**
+   - If you're using Bitbucket Pipelines, you can include similar logic in your CI/CD pipeline configuration to fail the build if specific files/folders are changed without the required approvals.
+
+   - **Example Pipeline YAML:**
+     ```yaml
+     pipelines:
+       default:
+         - step:
+             script:
+               - CHANGED_FILES=$(git diff --name-only origin/main)
+               - if echo "$CHANGED_FILES" | grep -q "src/sensitive-folder"; then
+                   echo "Sensitive files have been modified.";
+                   # Add logic to enforce mandatory reviewers or stop the build.
+                 fi
+     ```
+
+### 6. **Third-Party Tools (Optional):**
+   - There are third-party tools and Bitbucket apps available in the Atlassian Marketplace that can help automate and enforce these rules. Some examples include:
+     - **Auto-Merge Conditions**: Enforce conditions before a merge.
+     - **Reviewable**: Helps manage complex review workflows.
+
+### Summary:
+To ensure that certain folders or files in a Bitbucket repository have additional mandatory reviewers, you can either:
+1. **Set up branch permissions and merge checks** for broader enforcement.
+2. **Implement custom hooks or scripts** that check for changes in specific paths and enforce additional review conditions.
+3. **Utilize Bitbucket Pipelines** or third-party tools for more advanced automation and enforcement.
