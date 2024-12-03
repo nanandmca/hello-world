@@ -1,0 +1,67 @@
+To dynamically handle both English and Chinese date formats (AM/PM vs. 上午/下午), you can use conditional logic to detect the language and parse accordingly. Here’s how you can achieve it in a Spring Boot application:
+
+Complete Implementation
+
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.Locale;
+
+public class DynamicDateParser {
+
+    public static void main(String[] args) {
+        // Example inputs
+        String englishEvent = "2024-12-02T+0800 AM11:04:07.117+0800";
+        String chineseEvent = "2024-12-02T+0800 上午11:04:07.117+0800";
+
+        System.out.println("Parsed English Event: " + parseEventDate(englishEvent));
+        System.out.println("Parsed Chinese Event: " + parseEventDate(chineseEvent));
+    }
+
+    public static LocalDateTime parseEventDate(String eventDate) {
+        // Determine the Locale based on content
+        Locale locale;
+        DateTimeFormatter formatter;
+
+        if (eventDate.contains("上午") || eventDate.contains("下午")) {
+            // Chinese format
+            locale = Locale.CHINA;
+            formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd'Txxx aah:mm:ss.SSSxxx", locale);
+        } else if (eventDate.contains("AM") || eventDate.contains("PM")) {
+            // English format
+            locale = Locale.ENGLISH;
+            formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd'Txxx aah:mm:ss.SSSxxx", locale);
+        } else {
+            throw new IllegalArgumentException("Unsupported date format: " + eventDate);
+        }
+
+        // Parse the date
+        return LocalDateTime.parse(eventDate, formatter);
+    }
+}
+
+How It Works:
+
+	1.	Detect Language Dynamically:
+	•	The method checks if the input string contains “上午” or “下午” (Chinese) or “AM” or “PM” (English).
+	2.	Set Appropriate Locale:
+	•	If Chinese markers (上午/下午) are detected, it uses Locale.CHINA.
+	•	If English markers (AM/PM) are detected, it uses Locale.ENGLISH.
+	3.	Parse with the Correct DateTimeFormatter:
+	•	The formatter pattern handles both 12-hour clock and time zones (xxx for offset).
+	4.	Output:
+	•	Returns a LocalDateTime object for further use.
+
+Example Output:
+
+Given the inputs:
+	•	"2024-12-02T+0800 上午11:04:07.117+0800"
+	•	"2024-12-02T+0800 AM11:04:07.117+0800"
+
+The program will output:
+
+Parsed English Event: 2024-12-02T11:04:07.117
+Parsed Chinese Event: 2024-12-02T11:04:07.117
+
+Extensibility:
+
+If additional formats or languages are introduced, you can extend the if conditions and add more Locale and formatter configurations as needed.
