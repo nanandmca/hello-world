@@ -1,0 +1,76 @@
+
+create a react native app with expo in modularise way and MFE component 
+
+
+App Launch  call api to get public key and random number
+
+User Login - Api Call  encrypt password using public key and random number
+
+Post Login Page -  Logo, App Name, Avatar in right corner
+
+On Click of Avatar - Menu list - My Profile, Change Password, Logout 
+
+Based on response below flows
+
+1- Super Admin Flow
+   - Dashboard Screen (Api Call)
+     - Widgets / Charts for 
+	- Customer List
+	- User Count
+     - Drill down 
+	Customers - Count
+	- Branch of Count Customer 
+	- User count of Customer, Branch wise
+
+
+   bottom tab navigator or tab bar - Home, Customers, Codes
+
+	On Click of Home - Dashboard Screen
+	On Click of Codes - Codes
+			  - Manage Codes Screen
+	On Click of Customers - Customers Screen
+			 - Option to Manage Customer
+			 - Option to Manage Users for Customer
+			 - Option to Manage Codes for Customer
+
+
+1- Super Admin Flow
+
+2. Customer Admin Flow
+
+3. Customer Admin & Normal User Flow (Multiple Roles)
+
+4. Branch Admin Flow
+
+5. Branch Admin & Normal User Flow (Multiple Roles)
+
+6. Normal User Flow
+
+Login
+	GET /auth/public-keys
+	POST /auth/user
+	POST /auth/device
+	GET /auth/logout
+
+	GET /dashboard
+
+Super Admin
+	POST /customer
+	GET /customers
+	GET /codes
+	POST /customer-codes
+
+	POST /users
+	POST /user
+	POST /branch
+	GET /branches
+
+Customer / Branch Admin
+	POST /branch-codes
+	POST /user/logs
+
+User
+	POST /user/logs
+	POST /ens/initiate-code
+
+

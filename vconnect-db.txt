@@ -1,0 +1,289 @@
+// Use DBML to define your database structure
+// Docs: https://dbml.dbdiagram.io/docs
+
+Table customers {
+  id integer [primary key]
+  customer_name varchar
+  address varchar
+  email varchar
+  mobile varchar
+  failure_action varchar
+  no_of_retries integer
+  failure_email_list varchar
+  failure_mobile_list varchar
+  status varchar
+  created_at timestamp 
+  updated_at timestamp 
+}
+
+Table codes {
+  code_id varchar [primary key]
+  code_name varchar
+  setting_1 varchar
+  setting_2 varchar
+  audio_file_path varchar
+  created_at timestamp 
+  updated_at timestamp 
+}
+
+Table code_customer_mapping {
+  code_id varchar [primary key]
+  customer_id integer [primary key]
+  status varchar
+  created_at timestamp 
+  updated_at timestamp 
+}
+
+Ref: customers.id > code_customer_mapping.customer_id // many-to-one
+Ref: codes.code_id > code_customer_mapping.code_id // many-to-one
+
+Table users {
+  id integer [primary key]
+  user_name varchar
+  password varchar
+  first_name varchar
+  last_name varchar
+  email varchar
+  mobile varchar
+  status varchar
+  created_at timestamp 
+  updated_at timestamp 
+}
+
+Table user_customer_mapping {
+  user_id integer [primary key]
+  customer_id integer [primary key]
+  status varchar
+  created_at timestamp 
+  updated_at timestamp 
+}
+
+Ref: customers.id > user_customer_mapping.customer_id // many-to-one
+Ref: users.id > user_customer_mapping.user_id // many-to-one
+
+Table roles {
+  id integer [primary key]
+  role_name varchar
+  created_at timestamp 
+  updated_at timestamp 
+}
+
+Table permissions {
+  id integer [primary key]
+  permission_name varchar
+  created_at timestamp 
+  updated_at timestamp 
+}
+
+Table role_permission_mapping {
+  role_id integer [primary key]
+  permission_id integer [primary key]
+  status varchar
+  created_at timestamp 
+  updated_at timestamp 
+}
+
+Ref: roles.id > role_permission_mapping.role_id // many-to-one
+Ref: permissions.id > role_permission_mapping.permission_id // many-to-one
+
+
+
+
+
+
+DELIMITER //
+
+CREATE TRIGGER before_insert_user
+BEFORE INSERT ON users
+FOR EACH ROW
+BEGIN
+    SET NEW.custom_id = CONCAT('C', LPAD(NEW.id, 4, '0'));
+END;
+
+//
+DELIMITER ;
+
+
+
+
+Customers
+--------
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    customer_name VARCHAR(255) NOT NULL,
+    address VARCHAR(255) NOT NULL,
+    email VARCHAR(255) NOT NULL,
+    mobile VARCHAR(255) NOT NULL,
+    status ENUM('ACTIVE', 'INACTIVE') DEFAULT 'ACTIVE',  -- Active flag for the mapping
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    Failure Action
+    No of Retry
+    Failure_Alert_Email_List
+    Failure_Alert_Mobile_List
+
+
+Codes
+-----
+    code_id VARCHAR(10) NOT NULL PRIMARY KEY,
+    code_name VARCHAR(50) NOT NULL,
+    Default Settings List
+    Wav File Path
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+
+Customer Vs Codes
+-----------------
+    customer_id INT NOT NULL,
+    code_id VARCHAR(10) NOT NULL,
+    STATUS - INIT (ACTIVE)
+    FOREIGN KEY (code_id) REFERENCES Codes(code_id),
+    FOREIGN KEY (customer_id) REFERENCES customers(id),
+    UNIQUE (customer_id, code_id)  
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+
+Roles	 (e.g., super_admin, customer_admin, branch_admin, user).
+-----
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  role_name VARCHAR(255) UNIQUE NOT NULL
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+Permissions
+-----------
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  permission_name VARCHAR(255) UNIQUE NOT NULL
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+Role Vs Permissions
+------------------
+    role_id INT NOT NULL,
+    permission_id INT NOT NULL,
+    STATUS - INIT (ACTIVE)
+    FOREIGN KEY (role_id) REFERENCES roles(id),
+    FOREIGN KEY (permission_id) REFERENCES Permissions(id),
+    UNIQUE (role_id, permission_id)  
+
+Users
+----
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    username VARCHAR(255) NOT NULL UNIQUE,
+    password VARCHAR(255) NOT NULL,
+    email VARCHAR(255),
+    phone VARCHAR(50),
+    first_name VARCHAR(255) NOT NULL UNIQUE,
+    last_name VARCHAR(255) NOT NULL UNIQUE,
+    status ENUM('ACTIVE', 'PENDING_APPROVAL') DEFAULT 'PENDING_APPROVAL',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+
+User Vs Customer Mapping
+------------------------
+    id INT AUTO_INCREMENT PRIMARY KEY,  -- Auto-generated primary key for foreign key references
+    user_id INT NOT NULL,
+    customer_id INT NOT NULL,
+    status ENUM('ACTIVE', 'INACTIVE1', 'INACTIVE2', 'INACTIVE3') DEFAULT 'ACTIVE',,  -- Active flag for the mapping
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id),
+    FOREIGN KEY (customer_id) REFERENCES customers(id),
+    UNIQUE (user_id, customer_id, status)  -- Composite unique key to ensure a user can only have one active mapping per customer
+
+
+User Vs Role (User Vs Customer Mapping id)
+------------------------
+    id INT AUTO_INCREMENT PRIMARY KEY,  -- Auto-generated primary key
+    user_customer_mapping_id INT NOT NULL,  -- Foreign key linking to user-customer mapping
+    role_id INT NOT NULL,
+    FOREIGN KEY (user_customer_mapping_id) REFERENCES user_customer_mapping(id),
+    FOREIGN KEY (role_id) REFERENCES roles(id),
+    UNIQUE (user_customer_mapping_id, role_id)  -- Ensures no duplicate role assignments per user-customer mapping
+
+
+Branches
+--------
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    customer_id INT NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    location VARCHAR(255),
+    Override_Default_Settings
+    Failure Action
+    No of Retry
+    Failure_Alert_Email_List_type
+    Failure_Alert_Mobile_List_type
+    Failure_Alert_Email_List
+    Failure_Alert_Mobile_List
+    status ENUM('ACTIVE', 'INACTIVE') 
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (customer_id) REFERENCES customers(id)
+
+Branches Vs Users (User Vs Customer Mapping id)
+-----------------
+    id INT AUTO_INCREMENT PRIMARY KEY,  -- Auto-generated primary key
+    user_customer_mapping_id INT NOT NULL,  -- Foreign key linking to user-customer mapping
+    branch_id INT NOT NULL,
+    status ENUM('ACTIVE', 'INACTIVE') 
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_customer_mapping_id) REFERENCES user_customer_mapping(id),
+    FOREIGN KEY (branch_id) REFERENCES branches(id)
+    UNIQUE (user_customer_mapping_id, branch_id)  -- Ensure unique branch for each user-customer mapping
+
+
+Branches Vs Codes (Customer Vs Codes id)
+-----------------
+    branch_id INT,
+    code_id INT,
+    PRIMARY KEY(branch_id, code_id),
+    status ENUM('ACTIVE', 'INACTIVE') 
+    DID
+    IVR
+    Override_Default_Settings
+    Failure Action
+    No of Retry
+    Failure_Alert_Email_List_type
+    Failure_Alert_Mobile_List_type
+    Failure_Alert_Email_List
+    Failure_Alert_Mobile_List
+    FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE CASCADE,
+    FOREIGN KEY (code_id) REFERENCES code_settings(id) ON DELETE CASCADE
+
+
+user_devices 
+-----------
+
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    user_id INT NOT NULL,
+    device_id VARCHAR(255) NOT NULL UNIQUE,
+    device_type ENUM('MOBILE', 'TABLET', 'WEB'),
+    public_key TEXT NOT NULL,  -- Store the public RSA key in text format (usually base64 encoded)
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id)
+
+
+User_Audit
+-----------
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    action VARCHAR(255) NOT NULL,
+    user_branch_mapping_id INT NOT NULL,  -- Foreign key linking to user-branch mapping
+    file_name VARCHAR(255) NOT NULL,
+    file_path VARCHAR(255) NOT NULL,
+    file_type ENUM('wav', 'excel', 'json', 'csv') NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_branch_mapping_id) REFERENCES user_branch_mapping(id)
+
+
+User_Login_Failure
+------------------
+
+
+
+
+
+
+
+
