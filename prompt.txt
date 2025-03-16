@@ -1,0 +1,530 @@
+gateway.js
+
+const express = require('express');
+
+require('module-alias/register');
+
+const {authenticationServiceProxyMiddleware, EmployeeDetailsServiceProxyMiddleware} = require('@middleware/proxyMiddleware');
+const loggingMiddleware = require('@middleware/loggingMiddleware');
+const authMiddleware = require('@middleware/authorizationMiddleware');
+const rateLimiter = require('@config/rateLimiter');
+const errorHandler = require('@utils/errorHandler');
+
+const gwlogger = require('@config/logger');
+
+// Import route-specific interceptors
+const AuthInterceptor = require('@interceptors/AuthInterceptor');
+const EmployeeInterceptor = require('@interceptors/EmployeeInterceptor');
+
+// Import the service-specific configurations
+const authEndpoints = require('@config/authEndpoints');
+const EmployeeEndpoints = require('@config/EmployeeEndpoints');
+
+
+// Setup Express App
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// Instantiate interceptors
+const authInterceptor = new AuthInterceptor();
+const EmployeeInterceptor = new EmployeeInterceptor();
+
+// Helper function to dynamically apply middleware, interceptors, and proxy middleware
+function applyProxyRoute(path, authConfig, interceptor, proxyMiddleware) {
+    console.log(`applyProxyRoute path : ${path}`);
+    app.use(path,
+        (req, res, next) => { // Middleware
+            console.log(`Route reached before authMiddleware : ${req.method} ${req.path}`);
+            return authMiddleware(authConfig)(req, res, next);
+        },
+        (req, res, next) => { // requestInterceptor
+            console.log(`Route reached before requestInterceptor : ${req.method} ${req.path}`);
+            return interceptor.requestInterceptor(req, res, next);
+        },
+        (req, res, next) => { // responseInterceptor
+            console.log(`Route reached before responseInterceptor : ${req.method} ${req.path}`);
+            return interceptor.responseInterceptor(req, res, next);
+        },
+        proxyMiddleware  // Proxy route middleware
+    );
+}
+
+// Apply Middlewares
+app.use(loggingMiddleware);
+app.use(rateLimiter);
+
+// Proxy Routes with dynamic interceptor handling
+applyProxyRoute('/api/auth', authEndpoints, authInterceptor, authenticationServiceProxyMiddleware);
+applyProxyRoute('/api/emp', EmployeeEndpoints, EmployeeInterceptor, EmployeeDetailsServiceProxyMiddleware);
+
+// Global Error Handler
+app.use(errorHandler);
+
+// Start the API Gateway server
+app.listen(PORT, () => {
+    console.log(`API Gateway running on port ${PORT}`);
+    gwlogger.info(`API Gateway running on port ${PORT}`);
+});
+
+
+
+config\accesslogger.js
+
+const morgan = require("morgan");
+
+const winston = require("winston");
+require("winston-daily-rotate-file");
+const path = require("path");
+//const logDirectory = process.env.LOG_DIRECTORY || '/tmp';
+const logDirectory =
+  process.env.LOG_DIRECTORY ||
+  (process.platform === "win32"
+    ? "C:\\MyFiles\\MyWork\\Employee\\winze-gateway\\logs"
+    : "/tmp");
+
+// Create a transport for daily log rotation
+const dailyRotateAccessLogs = new winston.transports.DailyRotateFile({
+  filename: path.join(logDirectory, "access/access-%DATE%.log"),
+  datePattern: "YYYY-MM-DD",
+  zippedArchive: true, // Optional: Compress old logs
+  maxSize: "20m", // Optional: Max log file size before rotation
+  maxFiles: "30d", // Optional: Keep logs for 30 days
+});
+
+// Define the logger
+const accessLogsLogger = winston.createLogger({
+  level: "info",
+  transports: [
+    dailyRotateAccessLogs, // Write to daily rotated file
+    new winston.transports.Console({ format: winston.format.simple() }), // Optional: Log to the console
+  ],
+});
+
+// Logging setup for HTTP requests (combined format)
+//const logger = morgan('combined');
+const logger = morgan("combined", {
+  stream: { write: (message) => accessLogsLogger.info(message.trim()) },
+});
+
+module.exports = logger;
+
+
+config\authEndpoints.js
+
+module.exports = {
+  unsecuredEndpoints: [
+    { path: "/public-keys", method: ["GET"] },
+    { path: "/login", method: ["POST"] },
+    { path: "/register", method: ["POST"] },
+    { path: "/forgot-password", method: ["POST"] },
+  ],
+  securedEndpoints: [
+    { path: "/customers", method: ["GET"], authType: "1FA" }, // Get all customers
+    { path: "/customers/:id", method: ["GET"], authType: "1FA" }, // Get customer by ID
+    { path: "/customers/create", method: ["POST"], authType: "1FA" }, // Create a new customer
+    { path: "/customers/:id", method: ["PUT"], authType: "1FA" }, // Update an existing customer
+    { path: "/customers/:id", method: ["DELETE"], authType: "1FA" }, // Delete a customer
+
+    { path: "/users", method: ["GET"], authType: "1FA" },
+    { path: "/userInfo", method: ["GET"], authType: "1FA" },
+    { path: "/changePassword", method: ["POST"], authType: "1FA" },
+    { path: "/verify2FA", method: ["POST"], authType: "2FA" },
+    { path: "/changeSecuritySettings", method: ["PUT"], authType: "2FA" },
+  ],
+};
+
+
+
+config\jweAuth.js
+
+// TODO remove
+function authenticate(token) {
+  try {
+    return {
+      username: "errorUser",
+      authType: "2FA",
+    };
+  } catch (err) {
+    console.error(err.message);
+    return {
+      username: "errorUser",
+      authType: "2FA",
+    };
+  }
+}
+
+exports.authenticate = authenticate;
+
+
+config\logger.js
+
+const winston = require("winston");
+require("winston-daily-rotate-file");
+const path = require("path");
+//const logDirectory = process.env.LOG_DIRECTORY || '/tmp';
+const logDirectory =
+  process.env.LOG_DIRECTORY ||
+  (process.platform === "win32"
+    ? "C:\\MyFiles\\MyWork\\Employee\\winze-gateway\\logs"
+    : "/tmp");
+
+// Create a transport for daily log rotation
+const dailyRotateGWLogs = new winston.transports.DailyRotateFile({
+  filename: path.join(logDirectory, "GW/gateway-%DATE%.log"),
+  datePattern: "YYYY-MM-DD",
+  zippedArchive: true, // Optional: Compress old logs
+  maxSize: "20m", // Optional: Max log file size before rotation
+  maxFiles: "30d", // Optional: Keep logs for 30 days
+});
+
+// Define the logger
+const gwLogger = winston.createLogger({
+  level: "info",
+  transports: [
+    dailyRotateGWLogs, // Write to daily rotated file
+    new winston.transports.Console({ format: winston.format.simple() }), // Optional: Log to the console
+  ],
+});
+
+module.exports = gwLogger;
+
+
+
+config\rateLimiter.js
+
+const rateLimit = require("express-rate-limit");
+
+// Rate limit setup - Max 100 requests per 15 minutes per IP
+const rateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // Max 100 requests
+  message: "Too many requests, please try again later.",
+});
+
+module.exports = rateLimiter;
+
+
+config\EmployeeEndpoints.js
+
+module.exports = {
+  unsecuredEndpoints: [{ path: "/healthcheck", method: ["GET"] }],
+  securedEndpoints: [
+    // branches
+    { path: "/branches", method: ["GET"], authType: "1FA" },
+    { path: "/branches", method: ["POST"], authType: "1FA" },
+    { path: "/branches/:id", method: ["GET"], authType: "1FA" },
+    { path: "/branches/:id", method: ["PUT"], authType: "1FA" },
+    { path: "/branches/:id", method: ["DELETE"], authType: "1FA" },
+
+    // Codes
+    { path: "/codes", method: ["GET"], authType: "1FA" },
+    { path: "/codes", method: ["POST"], authType: "1FA" },
+    { path: "/codes/:id", method: ["GET"], authType: "1FA" },
+    { path: "/codes/:id", method: ["PUT"], authType: "1FA" },
+    { path: "/codes/:id", method: ["DELETE"], authType: "1FA" },
+  ],
+};
+
+
+middleware\interceptors\AuthInterceptor.js
+
+const BaseInterceptor = require("@interceptors/BaseInterceptor");
+
+class AuthInterceptor extends BaseInterceptor {
+  // Override requestInterceptor for /api/auth route-specific logic
+  requestInterceptor(req, res, next) {
+    console.log("Auth Interceptor: requestInterceptor");
+    super.requestInterceptor(req, res, next); // Call base logic
+
+    if (req.path.includes("login")) {
+      console.log("Auth Interceptor: Specific Logic for Login");
+    }
+    console.log("Auth Interceptor: requestInterceptor Before Next");
+    next();
+  }
+
+  // Override responseInterceptor for /api/auth route-specific logic
+  responseInterceptor(req, res, next) {
+    console.log("Auth Interceptor: responseInterceptor");
+    super.responseInterceptor(req, res, next); // Call base logic
+    res.setHeader("X-Auth-Specific-Header", "AuthService");
+    console.log("Auth Interceptor: responseInterceptor Before Next");
+    next();
+  }
+}
+
+module.exports = AuthInterceptor;
+
+
+
+middleware\interceptors\BaseInterceptor.js
+
+class BaseInterceptor {
+  // Method to check if the value is defined before setting a header
+  setHeaderIfDefined(res, headerName, value) {
+    if (value !== undefined && value !== null) {
+      res.setHeader(headerName, value);
+    } else {
+      console.warn(
+        `Header "${headerName}" not set because the value is undefined or null.`
+      );
+    }
+  }
+
+  // This will be called on the request before reaching the route handler
+  requestInterceptor(req, res, next) {
+    console.log("Base Request Interceptor Logic");
+    res.setHeader(
+      "X-Base-Request-Processed-Time",
+      `${new Date().toISOString()}`
+    );
+    //next();
+  }
+
+  // This will be called on the response after the route handler
+  responseInterceptor(req, res, next) {
+    console.log("Base Response Interceptor Logic");
+    res.setHeader("X-Base-Response-Time", `${Date.now() - req.startTime} ms`);
+    //next();
+  }
+}
+
+module.exports = BaseInterceptor;
+
+
+middleware\interceptors\EmployeeInterceptor.js
+
+const BaseInterceptor = require("@interceptors/BaseInterceptor");
+
+class EmployeeInterceptor extends BaseInterceptor {
+  // Override requestInterceptor for /api/emp route-specific logic
+  requestInterceptor(req, res, next) {
+    super.requestInterceptor(req, res, next); // Call base logic
+
+    // Add any specific logic for /api/emp
+    if (req.path.includes("healthcheck")) {
+      console.log("Employee Interceptor: Specific Logic for Healthcheck");
+    }
+
+    next(); // Continue to the next middleware
+  }
+
+  // Override responseInterceptor for /api/emp route-specific logic
+  responseInterceptor(req, res, next) {
+    super.responseInterceptor(req, res, next); // Call base logic
+
+    // Add any specific logic for /api/emp
+    res.setHeader("X-Employee-Specific-Header", "EmployeeService");
+
+    next(); // Continue to the next middleware
+  }
+}
+
+module.exports = EmployeeInterceptor;
+
+
+middleware\authorizationMiddleware.js
+
+const { authenticate } = require("@config/jweAuth");
+
+// Authentication middleware using JWE
+// Middleware to handle authorization dynamically based on the config provided
+function authorizationMiddleware(serviceConfig) {
+  return (req, res, next) => {
+    // Check if the request path is in the unsecured list for the current service
+    const unsecuredPath = serviceConfig.unsecuredEndpoints.find(
+      (endpoint) =>
+        endpoint.path === req.path && endpoint.method.includes(req.method)
+    );
+    if (unsecuredPath) {
+      return next(); // Skip authentication for these paths
+    }
+
+    // Utility function to convert route patterns (e.g., '/user/:id') to regex
+    const pathToRegex = (path) =>
+      new RegExp("^" + path.replace(/:[^\s/]+/g, "([^/]+)") + "$");
+
+    // 1FA/2FA Secured Endpoints Validation
+    const securedEndpoint = serviceConfig.securedEndpoints.find((endpoint) => {
+      const regex = pathToRegex(endpoint.path);
+      return regex.test(req.path) && endpoint.method.includes(req.method);
+    });
+
+    // If not found in unsecured or secured, return 404 error
+    if (!unsecuredPath && !securedEndpoint) {
+      return res
+        .status(404)
+        .json({ message: "Endpoint not found or not configured" });
+    }
+
+    // Get the token from the Authorization header
+    const token = req.headers["authorization"]?.split(" ")[1]; // Bearer token
+    if (!token) {
+      return res.status(403).json({ message: "No token provided" });
+    }
+
+    try {
+      // Authenticate the user using the token
+      const user = authenticate(token);
+      req.user = user;
+
+      if (securedEndpoint) {
+        if (securedEndpoint.authType === "2FA" && user.authType !== "2FA") {
+          return res
+            .status(401)
+            .json({ message: "2FA authentication required for this endpoint" });
+        }
+        if (
+          securedEndpoint.authType === "1FA" &&
+          user.authType !== "1FA" &&
+          user.authType !== "2FA"
+        ) {
+          return res
+            .status(401)
+            .json({ message: "1FA authentication required for this endpoint" });
+        }
+      }
+
+      // Request Interceptor: Add custom headers after token verification
+      // Add custom headers after successful authentication, with undefined checks
+      if (user.username !== undefined && user.username !== null) {
+        req.headers["x-authenticated-user"] = user.username; // Add user info if defined
+      }
+
+      if (user.authType !== undefined && user.authType !== null) {
+        req.headers["x-authentication-status"] = user.authType; // Add authentication type if defined
+      }
+      console.log("Before Next");
+      next();
+    } catch (err) {
+      console.log(err);
+      return res.status(401).json({ message: "Invalid or expired token" });
+    }
+  };
+}
+
+module.exports = authorizationMiddleware;
+
+
+middleware\loggingMiddleware.js
+
+const logger = require("@config/accesslogger");
+
+// Logging middleware for HTTP requests
+function loggingMiddleware(req, res, next) {
+  logger(req, res, next);
+}
+
+module.exports = loggingMiddleware;
+
+
+middleware\proxyMiddleware.js
+
+const authenticationServiceProxy = require("@services/authenticationService");
+const EmployeeDetailsServiceProxy = require("@services/EmployeeDetailsService");
+
+// Proxy Middleware for User Service
+function authenticationServiceProxyMiddleware(req, res, next) {
+  authenticationServiceProxy(req, res, next);
+}
+
+// Proxy Middleware for Product Service
+function EmployeeDetailsServiceProxyMiddleware(req, res, next) {
+  EmployeeDetailsServiceProxy(req, res, next);
+}
+
+module.exports = {
+  authenticationServiceProxyMiddleware,
+  EmployeeDetailsServiceProxyMiddleware,
+};
+
+
+
+
+services\authenticationService.js
+
+const { createProxyMiddleware } = require("http-proxy-middleware");
+
+const authenticationServiceUrls = [
+  "http://localhost:3001", // authentication service instance 1
+  // 'http://localhost:3002', // authentication service instance 2 (for load balancing) changes
+];
+
+let authenticationServiceIndex = 0;
+
+function getNextAuthenticationService() {
+  authenticationServiceIndex =
+    (authenticationServiceIndex + 1) % authenticationServiceUrls.length;
+  return authenticationServiceUrls[authenticationServiceIndex];
+}
+
+const authenticationServiceProxy = createProxyMiddleware({
+  target: getNextAuthenticationService(),
+  changeOrigin: true,
+  /*pathRewrite: {
+        '^/api/auth': '', // Strip out /api/auth from the URL before forwarding to the backend
+  },*/
+  onProxyReq: (proxyReq, req, res) => {
+    console.log(`Proxying request to: ${proxyReq.href}`); // Log the URL being forwarded
+  },
+  onError: (err, req, res) => {
+    console.error(`Error in proxying request: ${err.message}`);
+    res
+      .status(502)
+      .json({ message: "Bad Gateway: authentication Service is down" });
+  },
+  onProxyRes: (proxyRes, req, res) => {
+    // Log the response status code from the target
+    console.log(`Received ${proxyRes.statusCode} from ${req.url}`);
+  },
+});
+
+module.exports = authenticationServiceProxy;
+
+
+services\EmployeeDetailsService.js
+
+const { createProxyMiddleware } = require("http-proxy-middleware");
+const EmployeeDetailsServiceUrls = [
+  "http://localhost:5000", // EmployeeDetails service instance 1
+  // 'http://localhost:4001', // EmployeeDetails service instance 2 (for load balancing)
+];
+
+let EmployeeDetailsServiceIndex = 0;
+
+function getNextEmployeeDetailsService() {
+  EmployeeDetailsServiceIndex =
+    (EmployeeDetailsServiceIndex + 1) % EmployeeDetailsServiceUrls.length;
+  return EmployeeDetailsServiceUrls[EmployeeDetailsServiceIndex];
+}
+
+const EmployeeDetailsServiceProxy = createProxyMiddleware({
+  target: getNextEmployeeDetailsService(),
+  changeOrigin: true,
+  onError: (err, req, res) => {
+    console.error(`Error in proxying request: ${err.message}`);
+    res
+      .status(502)
+      .json({ message: "Bad Gateway: EmployeeDetails Service is down" });
+  },
+});
+
+module.exports = EmployeeDetailsServiceProxy;
+
+
+utils\errorHandler.js
+
+
+function errorHandler(err, req, res, next) {
+  console.error("Unexpected Error:", err);
+  res.status(500).json({ message: "Internal Server Error" });
+}
+
+module.exports = errorHandler;
+
+
+http://localhost:3000/api/auth/public-keys  - getting 504 error
+
+http://localhost:3000/public-keys  - getting 404 error
+
+
