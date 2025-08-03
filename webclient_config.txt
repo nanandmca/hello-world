@@ -1,0 +1,85 @@
+# application.yml - Configuration structure
+customer-master-adapter:
+  webclients:
+    # Global defaults
+    default:
+      oauth:
+        client-id: "global-client-id"
+        client-secret: "global-client-secret"
+        token-uri: "https://global-auth.company.com/oauth/token"
+        scope: "read write"
+      connection:
+        timeout: 30000
+        read-timeout: 60000
+        max-connections: 100
+    
+    # Country-specific configurations
+    countries:
+      US:
+        # US uses separate subsystems
+        subsystems:
+          product:
+            base-url: "https://us-product.company.com"
+            oauth:
+              client-id: "us-product-client"
+              client-secret: "us-product-secret"
+          profile:
+            base-url: "https://us-profile.company.com"
+            oauth:
+              client-id: "us-profile-client"
+              client-secret: "us-profile-secret"
+          preferences:
+            base-url: "https://us-preferences.company.com"
+            # Inherits default oauth config
+          eservices:
+            base-url: "https://us-eservices.company.com"
+            oauth:
+              client-id: "us-eservices-client"
+              client-secret: "us-eservices-secret"
+      
+      UK:
+        # UK uses unified subsystem
+        subsystems:
+          unified:
+            base-url: "https://uk-unified.company.com"
+            oauth:
+              client-id: "uk-unified-client"
+              client-secret: "uk-unified-secret"
+            # Maps all subsystems to this endpoint
+            subsystem-mappings:
+              product: "/api/v1/product"
+              profile: "/api/v1/profile" 
+              preferences: "/api/v1/preferences"
+              eservices: "/api/v1/eservices"
+      
+      IN:
+        # India has mixed approach
+        subsystems:
+          core:
+            base-url: "https://in-core.company.com"
+            oauth:
+              client-id: "in-core-client"
+              client-secret: "in-core-secret"
+            subsystem-mappings:
+              product: "/product"
+              profile: "/profile"
+          services:
+            base-url: "https://in-services.company.com"
+            # Uses different oauth
+            oauth:
+              client-id: "in-services-client"
+              client-secret: "in-services-secret"
+            subsystem-mappings:
+              preferences: "/preferences"
+              eservices: "/eservices"
+
+    # Environment-specific overrides
+    environments:
+      dev:
+        oauth:
+          token-uri: "https://dev-auth.company.com/oauth/token"
+      test:
+        oauth:
+          token-uri: "https://test-auth.company.com/oauth/token"
+      prod:
+        # Uses default token-uri
