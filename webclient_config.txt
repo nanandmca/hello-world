@@ -83,3 +83,361 @@ customer-master-adapter:
           token-uri: "https://test-auth.company.com/oauth/token"
       prod:
         # Uses default token-uri
+
+
+
+
+
+# Merging Spring Boot Microservices: AI-Assisted Strategy
+
+## Overview
+
+This guide shows how to use your custom AI development tools to merge two separate Spring Boot microservices from different repositories into a single application.
+
+-----
+
+## **Phase 1: Analysis & Planning (Architect + Ask Modes)**
+
+### Step 1: Use **Ask Mode** for Discovery
+
+```
+Prompt Examples:
+- "Analyze the dependencies and structure of [Service A] Spring Boot application"
+- "What are the potential conflicts when merging two Spring Boot services?"
+- "Explain the differences between these two application.yml configurations"
+- "What are the best practices for consolidating microservices?"
+```
+
+### Step 2: Use **Architect Mode** for Design
+
+```
+Architect Mode Prompts:
+- "Design a unified Spring Boot application structure that combines:
+  - Service A: [describe functionality]
+  - Service B: [describe functionality]"
+- "Create a package structure for merging these services while maintaining separation of concerns"
+- "Design a configuration strategy for unified application properties"
+- "Plan the database integration strategy for combined services"
+```
+
+**Expected Architect Output:**
+
+- New unified package structure
+- Configuration merge strategy
+- Dependency resolution plan
+- Database consolidation approach
+
+-----
+
+## **Phase 2: Setup & Preparation (Orchestrator Mode)**
+
+### Use **Orchestrator Mode** to Break Down the Task
+
+```
+Orchestrator Prompt:
+"I need to merge two Spring Boot microservices. Break this down into manageable tasks and coordinate the approach:
+
+Service A: [Brief description]
+Service B: [Brief description]
+
+Consider: dependencies, configurations, database schemas, API endpoints, tests"
+```
+
+**Expected Orchestrator Output:**
+
+1. Dependency analysis tasks
+1. Code merge sequence
+1. Configuration consolidation steps
+1. Testing strategy
+1. Risk mitigation tasks
+
+-----
+
+## **Phase 3: Implementation (Code Mode)**
+
+### Step 1: Create New Unified Project Structure
+
+```
+Code Mode Prompts:
+- "Generate a Spring Boot project structure that can accommodate both [Service A] and [Service B]"
+- "Create a unified pom.xml/build.gradle that merges dependencies from both services"
+- "Generate package structure: com.company.unified.servicea and com.company.unified.serviceb"
+```
+
+### Step 2: Merge Configuration Files
+
+```
+Code Mode Prompts:
+- "Merge these two application.yml files while avoiding conflicts:
+  [paste Service A config]
+  [paste Service B config]"
+- "Create unified database configuration for multiple datasources"
+- "Generate Spring profiles for different environments combining both services"
+```
+
+### Step 3: Consolidate Controllers and Services
+
+```
+Code Mode Prompts:
+- "Refactor this controller to use unified base path: [paste controller code]"
+- "Merge these two service classes while maintaining their distinct functionality"
+- "Create a unified exception handling strategy for both services"
+```
+
+### Step 4: Database Integration
+
+```
+Code Mode Prompts:
+- "Create JPA configuration for multiple datasources in single Spring Boot app"
+- "Generate migration scripts to combine two separate databases"
+- "Create unified entity package structure for both services"
+```
+
+-----
+
+## **Phase 4: Testing & Validation (Debug + Ask Modes)**
+
+### Step 1: Use **Debug Mode** for Issue Resolution
+
+```
+Debug Mode Scenarios:
+- "Fix dependency conflicts between Spring Boot services"
+- "Resolve port conflicts and bean naming issues"
+- "Debug database connection problems in merged application"
+- "Fix circular dependency issues in merged services"
+```
+
+### Step 2: Use **Ask Mode** for Validation
+
+```
+Ask Mode Prompts:
+- "How do I test that both services are working correctly in the merged application?"
+- "What are the signs that the merge was successful?"
+- "How to verify that all endpoints from both services are accessible?"
+- "Best practices for integration testing merged microservices?"
+```
+
+-----
+
+## **Detailed Implementation Steps**
+
+### **Step 1: Repository Preparation**
+
+```bash
+# Create new unified repository
+git clone [service-a-repo] unified-service
+cd unified-service
+git remote add service-b [service-b-repo-url]
+git fetch service-b
+```
+
+**Architect Mode Prompt:**
+
+```
+"Design a Git strategy for merging two separate Spring Boot repositories while preserving history and maintaining clear separation of features"
+```
+
+### **Step 2: Project Structure Creation**
+
+**Code Mode Prompt:**
+
+```
+"Generate a Spring Boot project structure for unified service with:
+- Service A functionality: [list main features]
+- Service B functionality: [list main features]
+- Shared utilities and configurations
+- Separate package hierarchies but unified build"
+```
+
+### **Step 3: Dependency Consolidation**
+
+**Code Mode Prompt:**
+
+```
+"Merge these two Maven/Gradle build files, resolving version conflicts:
+
+Service A dependencies:
+[paste pom.xml or build.gradle content]
+
+Service B dependencies:
+[paste pom.xml or build.gradle content]
+```
+
+### **Step 4: Configuration Merge**
+
+**Ask Mode + Code Mode:**
+
+```
+Ask: "What's the best way to merge Spring Boot configurations without conflicts?"
+Code: "Merge these application properties files: [paste both configs]"
+```
+
+### **Step 5: Code Integration**
+
+**Orchestrator Mode Prompt:**
+
+```
+"Plan the step-by-step code integration process for merging:
+1. Controllers from both services
+2. Service layer classes
+3. Repository layers
+4. Configuration classes
+5. Utility classes
+6. Test classes"
+```
+
+-----
+
+## **Common Challenges & AI Solutions**
+
+### **Port Conflicts**
+
+```
+Debug Mode Prompt:
+"Two Spring Boot services are configured for same port. Fix the configuration to run both in single application"
+```
+
+### **Bean Name Conflicts**
+
+```
+Debug Mode Prompt:
+"Resolve Spring bean naming conflicts when merging two services:
+[paste conflicting bean definitions]"
+```
+
+### **Database Connection Issues**
+
+```
+Code Mode Prompt:
+"Create Spring Boot configuration for multiple datasources:
+- Service A uses MySQL database 'service_a_db'
+- Service B uses PostgreSQL database 'service_b_db'"
+```
+
+### **API Path Conflicts**
+
+```
+Code Mode Prompt:
+"Refactor REST controller endpoints to avoid conflicts:
+Service A endpoints: [list endpoints]
+Service B endpoints: [list endpoints]
+Suggest unified API structure"
+```
+
+-----
+
+## **Testing Strategy with AI Modes**
+
+### **Unit Testing**
+
+```
+Code Mode Prompt:
+"Generate unit tests for merged service classes ensuring both original functionalities work correctly"
+```
+
+### **Integration Testing**
+
+```
+Ask Mode + Code Mode:
+Ask: "How to test inter-service communication in merged Spring Boot application?"
+Code: "Generate integration tests for unified service endpoints"
+```
+
+### **Performance Testing**
+
+```
+Debug Mode Prompt:
+"Analyze performance impact of merging two microservices and suggest optimizations"
+```
+
+-----
+
+## **Post-Merge Optimization**
+
+### **Code Cleanup**
+
+```
+Code Mode Prompts:
+- "Identify and remove duplicate utility classes across merged services"
+- "Refactor common functionality into shared modules"
+- "Optimize Spring Boot startup time for unified application"
+```
+
+### **Configuration Optimization**
+
+```
+Architect Mode Prompt:
+"Design optimized configuration structure for merged Spring Boot application considering:
+- Environment-specific settings
+- Feature flags for gradual migration
+- Performance tuning
+- Security configurations"
+```
+
+-----
+
+## **Rollback Strategy**
+
+### **Safety Measures**
+
+```
+Architect Mode Prompt:
+"Design a rollback strategy for microservice merge including:
+- Git branching strategy
+- Database rollback procedures
+- Service deployment rollback
+- Feature flagging for gradual cutover"
+```
+
+-----
+
+## **Sample Workflow Commands**
+
+### **Complete Workflow Example:**
+
+1. **Start with Orchestrator:**
+   
+   ```
+   "Break down the task of merging SpringBoot services 'user-service' and 'notification-service' into actionable steps"
+   ```
+1. **Use Architect for planning:**
+   
+   ```
+   "Design unified architecture for user management and notifications in single Spring Boot app"
+   ```
+1. **Code implementation:**
+   
+   ```
+   "Generate merged Spring Boot application with separate controllers for user and notification features"
+   ```
+1. **Debug issues:**
+   
+   ```
+   "Fix bean conflict between UserService and NotificationService in merged application"
+   ```
+1. **Ask for guidance:**
+   
+   ```
+   "How to verify that both user and notification APIs work correctly after merge?"
+   ```
+
+-----
+
+## **Best Practices**
+
+1. **Always start with Architect mode** for overall strategy
+1. **Use Orchestrator mode** to break down complex tasks
+1. **Leverage Code mode** for implementation details
+1. **Debug mode** is crucial for resolving conflicts
+1. **Ask mode** helps with best practices and validation
+
+## **Success Checklist**
+
+- [ ] Both services start successfully in unified application
+- [ ] All original endpoints are accessible
+- [ ] Database connections work for both service domains
+- [ ] Tests pass for both service functionalities
+- [ ] No bean or dependency conflicts
+- [ ] Performance is acceptable
+- [ ] Configuration is properly merged
+- [ ] Documentation is updated
