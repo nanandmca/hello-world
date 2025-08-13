@@ -359,3 +359,161 @@ If you want Maven to automatically select the correct chassis version:
 ```
 
 This setup provides both build-time validation through Maven Enforcer Plugin and runtime validation through the dependency checker component, ensuring your version compatibility rules are enforced at both stages.​​​​​​​​​​​​​​​​
+
+
+package your.package.config;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
+import org.springframework.stereotype.Component;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.Properties;
+import java.util.jar.Attributes;
+import java.util.jar.JarFile;
+import java.util.jar.Manifest;
+
+@Component
+public class DependencyVersionChecker {
+
+```
+private static final Logger log = LoggerFactory.getLogger(DependencyVersionChecker.class);
+
+@Value("${adapter.library.version:unknown}")
+private String expectedAdapterVersion;
+
+@EventListener(ApplicationReadyEvent.class)
+public void validateDependencyVersions() {
+    try {
+        String adapterVersion = getLoadedVersion("your.group", "adapter-library");
+        String chassisVersion = getLoadedVersion("your.group", "chassis");
+        
+        log.info("Loaded versions - Adapter: {}, Chassis: {}", adapterVersion, chassisVersion);
+        
+        validateVersionCompatibility(adapterVersion, chassisVersion);
+        
+    } catch (Exception e) {
+        log.error("Failed to validate dependency versions", e);
+        throw new IllegalStateException("Dependency version validation failed", e);
+    }
+}
+
+private void validateVersionCompatibility(String adapterVersion, String chassisVersion) {
+    if (adapterVersion == null || chassisVersion == null) {
+        log.warn("Could not determine all dependency versions");
+        return;
+    }
+    
+    Version adapter = Version.parse(adapterVersion);
+    Version chassis = Version.parse(chassisVersion);
+    
+    // Rule 1: Adapter < 2.2.0 should use Chassis >= 5.0.1 and < 5.5.0
+    if (adapter.isLessThan(2, 2, 0)) {
+        if (!chassis.isGreaterThanOrEqual(5, 0, 1) || chassis.isGreaterThanOrEqual(5, 5, 0)) {
+            String message = String.format(
+                "Incompatible versions: Adapter %s (< 2.2.0) requires Chassis 5.0.1-5.4.x, but found Chassis %s",
+                adapterVersion, chassisVersion
+            );
+            log.error(message);
+            throw new IllegalStateException(message);
+        }
+        log.info("✓ Version compatibility validated: Adapter {} with Chassis {}", adapterVersion, chassisVersion);
+    }
+    // Rule 2: Adapter >= 2.2.0 should use Chassis >= 5.5.0
+    else if (adapter.isGreaterThanOrEqual(2, 2, 0)) {
+        if (!chassis.isGreaterThanOrEqual(5, 5, 0)) {
+            String message = String.format(
+                "Incompatible versions: Adapter %s (>= 2.2.0) requires Chassis >= 5.5.0, but found Chassis %s",
+                adapterVersion, chassisVersion
+            );
+            log.error(message);
+            throw new IllegalStateException(message);
+        }
+        log.info("✓ Version compatibility validated: Adapter {} with Chassis {}", adapterVersion, chassisVersion);
+    }
+}
+
+private String getLoadedVersion(String groupId, String artifactId) {
+    try {
+        // Try to get version from package
+        Package pkg = Package.getPackage(groupId + "." + artifactId);
+        if (pkg != null && pkg.getImplementationVersion() != null) {
+            return pkg.getImplementationVersion();
+        }
+        
+        // Try to get version from META-INF/maven properties
+        String resourcePath = String.format("/META-INF/maven/%s/%s/pom.properties", groupId, artifactId);
+        InputStream is = getClass().getResourceAsStream(resourcePath);
+        if (is != null) {
+            Properties props = new Properties();
+            props.load(is);
+            return props.getProperty("version");
+        }
+        
+        // Try to get from manifest
+        String manifestPath = String.format("/META-INF/MANIFEST.MF");
+        is = getClass().getResourceAsStream(manifestPath);
+        if (is != null) {
+            Manifest manifest = new Manifest(is);
+            Attributes attrs = manifest.getMainAttributes();
+            String title = attrs.getValue("Implementation-Title");
+            if (title != null && title.contains(artifactId)) {
+                return attrs.getValue("Implementation-Version");
+            }
+        }
+        
+    } catch (IOException e) {
+        log.warn("Could not determine version for {}:{}", groupId, artifactId, e);
+    }
+    
+    return null;
+}
+
+// Simple version comparison utility
+public static class Version {
+    private final int major;
+    private final int minor;
+    private final int patch;
+    
+    public Version(int major, int minor, int patch) {
+        this.major = major;
+        this.minor = minor;
+        this.patch = patch;
+    }
+    
+    public static Version parse(String version) {
+        String[] parts = version.split("\\.");
+        int major = parts.length > 0 ? Integer.parseInt(parts[0]) : 0;
+        int minor = parts.length > 1 ? Integer.parseInt(parts[1]) : 0;
+        int patch = parts.length > 2 ? Integer.parseInt(parts[2].replaceAll("[^0-9].*", "")) : 0;
+        return new Version(major, minor, patch);
+    }
+    
+    public boolean isLessThan(int major, int minor, int patch) {
+        if (this.major < major) return true;
+        if (this.major > major) return false;
+        if (this.minor < minor) return true;
+        if (this.minor > minor) return false;
+        return this.patch < patch;
+    }
+    
+    public boolean isGreaterThanOrEqual(int major, int minor, int patch) {
+        return !isLessThan(major, minor, patch);
+    }
+    
+    @Override
+    public String toString() {
+        return major + "." + minor + "." + patch;
+    }
+}
+```
+
+}
+
+
+
+
