@@ -1,0 +1,361 @@
+To validate Maven dependency conflicts and resolve version mismatches in your scenario, here are several approaches:
+
+## 1. Check Dependency Tree
+
+First, analyze your dependency tree to see which versions are being resolved:
+
+```bash
+mvn dependency:tree -Dverbose
+```
+
+This shows all dependencies and their versions, including transitive ones. Look for your chassis framework entries.
+
+## 2. Find Dependency Conflicts
+
+Use the dependency analyzer to identify conflicts:
+
+```bash
+mvn dependency:analyze
+```
+
+Or for more detailed conflict detection:
+
+```bash
+mvn dependency:tree -Dverbose | grep chassis
+```
+
+## 3. Check Effective POM
+
+See what Maven actually resolves:
+
+```bash
+mvn help:effective-pom
+```
+
+This shows the final resolved dependencies after Maven’s conflict resolution.
+
+## 4. Validate Specific Dependency Versions
+
+In your Spring Boot application’s `pom.xml`, explicitly declare the chassis version you want:
+
+```xml
+<properties>
+    <chassis.version>5.0.1</chassis.version>
+</properties>
+
+<dependencies>
+    <dependency>
+        <groupId>your.group</groupId>
+        <artifactId>chassis</artifactId>
+        <version>${chassis.version}</version>
+    </dependency>
+    <dependency>
+        <groupId>your.group</groupId>
+        <artifactId>adapter-library</artifactId>
+        <version>your.adapter.version</version>
+    </dependency>
+</dependencies>
+```
+
+## 5. Use Dependency Management
+
+Force the chassis version across all transitive dependencies:
+
+```xml
+<dependencyManagement>
+    <dependencies>
+        <dependency>
+            <groupId>your.group</groupId>
+            <artifactId>chassis</artifactId>
+            <version>5.0.1</version>
+        </dependency>
+    </dependencies>
+</dependencyManagement>
+```
+
+## 6. Exclude Conflicting Transitive Dependencies
+
+If your adapter library pulls in an old chassis version, exclude it:
+
+```xml
+<dependency>
+    <groupId>your.group</groupId>
+    <artifactId>adapter-library</artifactId>
+    <version>your.version</version>
+    <exclusions>
+        <exclusion>
+            <groupId>your.group</groupId>
+            <artifactId>chassis</artifactId>
+        </exclusion>
+    </exclusions>
+</dependency>
+```
+
+## 7. Runtime Validation
+
+Add a simple check in your application startup to verify the loaded version:
+
+```java
+@Component
+public class DependencyVersionChecker {
+    
+    @PostConstruct
+    public void checkVersions() {
+        Package chassisPackage = Package.getPackage("your.chassis.package");
+        if (chassisPackage != null) {
+            String version = chassisPackage.getImplementationVersion();
+            log.info("Chassis version loaded: {}", version);
+            
+            if (!"5.0.1".equals(version)) {
+                log.warn("Expected chassis version 5.0.1 but loaded {}", version);
+            }
+        }
+    }
+}
+```
+
+## 8. Maven Enforcer Plugin
+
+Add version enforcement to prevent conflicts:
+
+```xml
+<plugin>
+    <groupId>org.apache.maven.plugins</groupId>
+    <artifactId>maven-enforcer-plugin</artifactId>
+    <version>3.0.0</version>
+    <executions>
+        <execution>
+            <id>enforce-versions</id>
+            <goals>
+                <goal>enforce</goal>
+            </goals>
+            <configuration>
+                <rules>
+                    <dependencyConvergence/>
+                    <bannedDependencies>
+                        <excludes>
+                            <exclude>your.group:chassis:[,5.0.1)</exclude>
+                        </excludes>
+                    </bannedDependencies>
+                </rules>
+            </configuration>
+        </execution>
+    </executions>
+</plugin>
+```
+
+The most effective approach is typically combining dependency management with explicit version declaration and using the dependency tree analysis to verify the resolution.​​​​​​​​​​​​​​​​
+
+
+
+You can achieve version-specific dependency management using Maven profiles combined with properties, and implement both dependency version checking and enforcer plugin validation. Here’s how:
+
+## 1. Maven POM Configuration with Conditional Versioning
+
+```xml
+<properties>
+    <!-- Default versions -->
+    <adapter.library.version>2.1.0</adapter.library.version>
+    <chassis.version>5.0.1</chassis.version>
+</properties>
+
+<profiles>
+    <!-- Profile for adapter library version 2.2.0 and above -->
+    <profile>
+        <id>adapter-2.2.0-and-above</id>
+        <activation>
+            <property>
+                <name>adapter.library.version</name>
+                <value>!2.0.0</value> <!-- This will be overridden by the plugin check -->
+            </property>
+        </activation>
+        <properties>
+            <chassis.version>5.5.0</chassis.version>
+        </properties>
+    </profile>
+    
+    <!-- Profile for adapter library version below 2.2.0 -->
+    <profile>
+        <id>adapter-below-2.2.0</id>
+        <activation>
+            <activeByDefault>true</activeByDefault>
+        </activation>
+        <properties>
+            <chassis.version>5.0.1</chassis.version>
+        </properties>
+    </profile>
+</profiles>
+
+<dependencyManagement>
+    <dependencies>
+        <dependency>
+            <groupId>your.group</groupId>
+            <artifactId>chassis</artifactId>
+            <version>${chassis.version}</version>
+        </dependency>
+    </dependencies>
+</dependencyManagement>
+
+<dependencies>
+    <dependency>
+        <groupId>your.group</groupId>
+        <artifactId>adapter-library</artifactId>
+        <version>${adapter.library.version}</version>
+        <exclusions>
+            <exclusion>
+                <groupId>your.group</groupId>
+                <artifactId>chassis</artifactId>
+            </exclusion>
+        </exclusions>
+    </dependency>
+    <dependency>
+        <groupId>your.group</groupId>
+        <artifactId>chassis</artifactId>
+        <version>${chassis.version}</version>
+    </dependency>
+</dependencies>
+```
+
+## 2. Enhanced Maven Enforcer Plugin with Version Rules
+
+```xml
+<plugin>
+    <groupId>org.apache.maven.plugins</groupId>
+    <artifactId>maven-enforcer-plugin</artifactId>
+    <version>3.4.1</version>
+    <dependencies>
+        <dependency>
+            <groupId>org.codehaus.mojo</groupId>
+            <artifactId>extra-enforcer-rules</artifactId>
+            <version>1.7.0</version>
+        </dependency>
+    </dependencies>
+    <executions>
+        <execution>
+            <id>enforce-adapter-chassis-compatibility</id>
+            <goals>
+                <goal>enforce</goal>
+            </goals>
+            <phase>validate</phase>
+            <configuration>
+                <rules>
+                    <dependencyConvergence/>
+                    
+                    <!-- Rule for adapter library < 2.2.0 should use chassis 5.0.1+ but < 5.5.0 -->
+                    <bannedDependencies>
+                        <excludes>
+                            <exclude>your.group:chassis:[,5.0.1)</exclude>
+                            <exclude>your.group:chassis:[5.5.0,)</exclude>
+                        </excludes>
+                        <includes>
+                            <include>your.group:adapter-library:[,2.2.0)</include>
+                        </includes>
+                        <message>Adapter library versions below 2.2.0 must use chassis version 5.0.1 to 5.4.x</message>
+                    </bannedDependencies>
+                    
+                    <!-- Rule for adapter library >= 2.2.0 should use chassis 5.5.0+ -->
+                    <bannedDependencies>
+                        <excludes>
+                            <exclude>your.group:chassis:[,5.5.0)</exclude>
+                        </excludes>
+                        <includes>
+                            <include>your.group:adapter-library:[2.2.0,)</include>
+                        </includes>
+                        <message>Adapter library versions 2.2.0 and above must use chassis version 5.5.0 or higher</message>
+                    </bannedDependencies>
+                    
+                    <!-- Ensure no version conflicts -->
+                    <requireUpperBoundDeps/>
+                </rules>
+            </configuration>
+        </execution>
+    </executions>
+</plugin>
+```
+
+## 3. Build Helper Plugin for Dynamic Profile Activation
+
+```xml
+<plugin>
+    <groupId>org.codehaus.mojo</groupId>
+    <artifactId>build-helper-maven-plugin</artifactId>
+    <version>3.4.0</version>
+    <executions>
+        <execution>
+            <id>parse-adapter-version</id>
+            <phase>initialize</phase>
+            <goals>
+                <goal>parse-version</goal>
+            </goals>
+            <configuration>
+                <propertyPrefix>adapter</propertyPrefix>
+                <version>${adapter.library.version}</version>
+            </configuration>
+        </execution>
+    </executions>
+</plugin>
+```
+
+## 4. Enhanced Runtime Dependency Version Checker​​​​​​​​​​​​​​​​
+
+## 5. Usage Examples
+
+### Building with specific adapter version:
+
+```bash
+# For adapter version 2.1.0 (will use chassis 5.0.1)
+mvn clean install -Dadapter.library.version=2.1.0
+
+# For adapter version 2.3.0 (will use chassis 5.5.0)
+mvn clean install -Dadapter.library.version=2.3.0 -P adapter-2.2.0-and-above
+```
+
+### Validation commands:
+
+```bash
+# Check dependency tree
+mvn dependency:tree -Dverbose
+
+# Enforce version rules
+mvn enforcer:enforce
+
+# Run with specific profile
+mvn clean install -P adapter-2.2.0-and-above
+```
+
+## 6. Alternative: Version Range Dependencies (Advanced)
+
+If you want Maven to automatically select the correct chassis version:
+
+```xml
+<dependencies>
+    <dependency>
+        <groupId>your.group</groupId>
+        <artifactId>adapter-library</artifactId>
+        <version>${adapter.library.version}</version>
+        <exclusions>
+            <exclusion>
+                <groupId>your.group</groupId>
+                <artifactId>chassis</artifactId>
+            </exclusion>
+        </exclusions>
+    </dependency>
+    
+    <!-- Conditional chassis dependency based on adapter version -->
+    <dependency>
+        <groupId>your.group</groupId>
+        <artifactId>chassis</artifactId>
+        <version>[5.0.1,5.5.0)</version>
+        <optional>true</optional>
+    </dependency>
+    
+    <dependency>
+        <groupId>your.group</groupId>
+        <artifactId>chassis</artifactId>
+        <version>[5.5.0,)</version>
+        <optional>true</optional>
+    </dependency>
+</dependencies>
+```
+
+This setup provides both build-time validation through Maven Enforcer Plugin and runtime validation through the dependency checker component, ensuring your version compatibility rules are enforced at both stages.​​​​​​​​​​​​​​​​
