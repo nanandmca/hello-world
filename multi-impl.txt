@@ -1,0 +1,731 @@
+Looking at your requirements, you need to evolve from a single implementation selection to a multi-implementation registry pattern. Here’s a comprehensive solution using a factory/registry pattern with custom conditional loading:​​​​​​​​​​​​​​​​
+
+Now let me show you how to use this in your consumer application:​​​​​​​​​​​​​​​​
+
+Here are the key benefits and design patterns used in this solution:
+
+## Key Design Patterns & Benefits:
+
+### 1. **Registry Pattern**
+
+- `CustomerProfileRegistry` manages all implementations
+- Dynamic lookup based on feature configuration
+- Single point of access for all implementations
+
+### 2. **Custom Conditional Loading**
+
+- `@ConditionalOnProfileFeature` annotation
+- `OnProfileFeatureCondition` class evaluates which beans to load
+- Only loads implementations that are actually configured
+
+### 3. **Factory Pattern**
+
+- Registry acts as a factory for implementations
+- Abstracts the selection logic from consumers
+
+### 4. **Strategy Pattern**
+
+- Multiple implementations of the same interface
+- Runtime selection based on feature
+
+## How it Works:
+
+1. **Library JAR**: Contains all possible implementations with conditional loading
+1. **Consumer App Configuration**: Defines which implementations to use for which features
+1. **Runtime Selection**: Based on the `feature` parameter in the request
+1. **Backward Compatibility**: `null` feature uses default configuration
+
+## Configuration Examples:
+
+```yaml
+# Only default implementation loaded
+profile:
+  impl-type: cmcp
+  mapper-type: cmcp-sg
+
+# Multiple implementations loaded
+profile:
+  impl-type: cmcp        # default
+  mapper-type: cmcp-sg   # default
+  features:
+    gapi:
+      impl-type: cif
+      mapper-type: cif-sg
+    mobile:
+      impl-type: cmcp
+      mapper-type: cmcp-sg
+```
+
+## Usage Patterns:
+
+1. **Default behavior**: `getProfile(customerId)` - uses default config
+1. **Feature-specific**: `getProfile(customerId, "gapi")` - uses gapi config
+1. **Endpoint-specific**: Different controllers/endpoints can use different features
+1. **Dynamic selection**: Business logic can determine which feature to use
+
+This solution provides maximum flexibility while maintaining clean separation of concerns and backward compatibility.​​​​​​​​​​​​​​​
+
+
+// 1. Enhanced Request with Feature Support
+public class CustomerProfileRequest {
+private String customerId;
+private String feature; // null = default, “gapi”, “mobile”, etc.
+
+```
+// constructors, getters, setters
+public CustomerProfileRequest(String customerId) {
+    this.customerId = customerId;
+    this.feature = null; // default
+}
+
+public CustomerProfileRequest(String customerId, String feature) {
+    this.customerId = customerId;
+    this.feature = feature;
+}
+
+// getters and setters
+```
+
+}
+
+// 2. Configuration Properties Class
+@ConfigurationProperties(prefix = “profile”)
+@Component
+public class CustomerProfileProperties {
+
+```
+// Default configuration
+private String implType;
+private String mapperType;
+
+// Feature-specific configurations
+private Map<String, FeatureConfig> features = new HashMap<>();
+
+public static class FeatureConfig {
+    private String implType;
+    private String mapperType;
+    
+    // getters and setters
+}
+
+// Method to resolve configuration based on feature
+public FeatureConfig getConfigForFeature(String feature) {
+    if (feature == null) {
+        // Return default config
+        FeatureConfig defaultConfig = new FeatureConfig();
+        defaultConfig.setImplType(this.implType);
+        defaultConfig.setMapperType(this.mapperType);
+        return defaultConfig;
+    }
+    return features.get(feature);
+}
+
+// getters and setters for all fields
+```
+
+}
+
+// 3. Registry Key for Implementation Identification
+public class ProfileImplementationKey {
+private final String implType;
+private final String mapperType;
+
+```
+public ProfileImplementationKey(String implType, String mapperType) {
+    this.implType = implType;
+    this.mapperType = mapperType;
+}
+
+@Override
+public boolean equals(Object o) {
+    if (this == o) return true;
+    if (o == null || getClass() != o.getClass()) return false;
+    ProfileImplementationKey that = (ProfileImplementationKey) o;
+    return Objects.equals(implType, that.implType) && 
+           Objects.equals(mapperType, that.mapperType);
+}
+
+@Override
+public int hashCode() {
+    return Objects.hash(implType, mapperType);
+}
+
+// getters
+```
+
+}
+
+// 4. Enhanced Interfaces
+public interface CustomerProfile {
+CustomerProfileResponse getProfile(CustomerProfileRequest request);
+
+```
+// Method to identify which implementation this is
+ProfileImplementationKey getImplementationKey();
+```
+
+}
+
+public interface CustomerProfileMapper {
+CustomerProfileResponse mapResponse(CustomerProfileResponseDTO response);
+
+```
+// Method to identify which mapper this is  
+String getMapperType();
+```
+
+}
+
+// 5. Registry for Managing Multiple Implementations
+@Component
+public class CustomerProfileRegistry {
+
+```
+private final Map<ProfileImplementationKey, CustomerProfile> implementations = new HashMap<>();
+private final CustomerProfileProperties properties;
+
+public CustomerProfileRegistry(CustomerProfileProperties properties) {
+    this.properties = properties;
+}
+
+public void registerImplementation(CustomerProfile implementation) {
+    implementations.put(implementation.getImplementationKey(), implementation);
+}
+
+public CustomerProfile getImplementation(String feature) {
+    CustomerProfileProperties.FeatureConfig config = properties.getConfigForFeature(feature);
+    
+    if (config == null) {
+        throw new IllegalArgumentException("No configuration found for feature: " + feature);
+    }
+    
+    ProfileImplementationKey key = new ProfileImplementationKey(
+        config.getImplType(), 
+        config.getMapperType()
+    );
+    
+    CustomerProfile implementation = implementations.get(key);
+    if (implementation == null) {
+        throw new IllegalStateException(
+            "No implementation found for implType: " + config.getImplType() + 
+            ", mapperType: " + config.getMapperType()
+        );
+    }
+    
+    return implementation;
+}
+
+public CustomerProfileResponse getProfile(CustomerProfileRequest request) {
+    CustomerProfile implementation = getImplementation(request.getFeature());
+    return implementation.getProfile(request);
+}
+```
+
+}
+
+// 6. Custom Conditional Annotation for Multi-Feature Loading
+@Target({ElementType.TYPE, ElementType.METHOD})
+@Retention(RetentionPolicy.RUNTIME)
+@Conditional(OnProfileFeatureCondition.class)
+public @interface ConditionalOnProfileFeature {
+String implType();
+String mapperType();
+String[] features() default {}; // Empty means applies to all features using this impl+mapper combo
+}
+
+// 7. Custom Condition Implementation
+public class OnProfileFeatureCondition implements Condition {
+
+```
+@Override
+public boolean matches(ConditionContext context, AnnotatedTypeMetadata metadata) {
+    MultiValueMap<String, Object> attributes = metadata.getAllAnnotationAttributes(
+        ConditionalOnProfileFeature.class.getName()
+    );
+    
+    if (attributes == null) {
+        return false;
+    }
+    
+    String implType = (String) attributes.getFirst("implType");
+    String mapperType = (String) attributes.getFirst("mapperType");
+    String[] features = (String[]) attributes.getFirst("features");
+    
+    Environment env = context.getEnvironment();
+    
+    // Check if this implementation is needed for default configuration
+    boolean neededForDefault = checkDefaultConfiguration(env, implType, mapperType);
+    
+    // Check if this implementation is needed for any feature configuration
+    boolean neededForFeature = checkFeatureConfigurations(env, implType, mapperType, features);
+    
+    return neededForDefault || neededForFeature;
+}
+
+private boolean checkDefaultConfiguration(Environment env, String implType, String mapperType) {
+    String configuredImplType = env.getProperty("profile.impl-type");
+    String configuredMapperType = env.getProperty("profile.mapper-type");
+    
+    return implType.equals(configuredImplType) && mapperType.equals(configuredMapperType);
+}
+
+private boolean checkFeatureConfigurations(Environment env, String implType, String mapperType, String[] targetFeatures) {
+    // Get all feature configurations from environment
+    Map<String, String> implTypeProps = new HashMap<>();
+    Map<String, String> mapperTypeProps = new HashMap<>();
+    
+    // Scan for feature-specific properties
+    for (PropertySource<?> propertySource : ((ConfigurableEnvironment) env).getPropertySources()) {
+        if (propertySource instanceof MapPropertySource) {
+            Map<String, Object> source = ((MapPropertySource) propertySource).getSource();
+            for (Map.Entry<String, Object> entry : source.entrySet()) {
+                String key = entry.getKey();
+                if (key.startsWith("profile.") && key.endsWith(".impl-type")) {
+                    String feature = extractFeatureName(key);
+                    implTypeProps.put(feature, (String) entry.getValue());
+                } else if (key.startsWith("profile.") && key.endsWith(".mapper-type")) {
+                    String feature = extractFeatureName(key);
+                    mapperTypeProps.put(feature, (String) entry.getValue());
+                }
+            }
+        }
+    }
+    
+    // Check if any feature needs this implementation
+    for (String feature : implTypeProps.keySet()) {
+        String featureImplType = implTypeProps.get(feature);
+        String featureMapperType = mapperTypeProps.get(feature);
+        
+        if (implType.equals(featureImplType) && mapperType.equals(featureMapperType)) {
+            // If targetFeatures is empty, it applies to all features
+            // If targetFeatures is specified, check if current feature is in the list
+            if (targetFeatures.length == 0 || Arrays.asList(targetFeatures).contains(feature)) {
+                return true;
+            }
+        }
+    }
+    
+    return false;
+}
+
+private String extractFeatureName(String propertyKey) {
+    // Extract feature name from "profile.{feature}.impl-type" or "profile.{feature}.mapper-type"
+    String[] parts = propertyKey.split("\\.");
+    if (parts.length == 3) {
+        return parts[1];
+    }
+    return null;
+}
+```
+
+}
+
+// 8. Implementation Classes with New Annotations
+@Component
+@ConditionalOnProfileFeature(implType = “cmcp”, mapperType = “cmcp-sg”)
+public class CustomerProfileCmcp implements CustomerProfile {
+
+```
+@Autowired
+@Qualifier("cmcp-sg")
+private CustomerProfileMapper mapper;
+
+@Override
+public CustomerProfileResponse getProfile(CustomerProfileRequest request) {
+    // Your implementation logic
+    CustomerProfileResponseDTO dto = fetchDataFromCmcpSource(request);
+    return mapper.mapResponse(dto);
+}
+
+@Override
+public ProfileImplementationKey getImplementationKey() {
+    return new ProfileImplementationKey("cmcp", "cmcp-sg");
+}
+
+private CustomerProfileResponseDTO fetchDataFromCmcpSource(CustomerProfileRequest request) {
+    // Implementation specific logic
+    return new CustomerProfileResponseDTO();
+}
+```
+
+}
+
+@Component
+@Qualifier(“cmcp-sg”)
+@ConditionalOnProfileFeature(implType = “cmcp”, mapperType = “cmcp-sg”)
+public class CustomerProfileMapperCmcpSG implements CustomerProfileMapper {
+
+```
+@Override
+public CustomerProfileResponse mapResponse(CustomerProfileResponseDTO response) {
+    // Mapping logic specific to cmcp-sg
+    return new CustomerProfileResponse();
+}
+
+@Override
+public String getMapperType() {
+    return "cmcp-sg";
+}
+```
+
+}
+
+@Component
+@ConditionalOnProfileFeature(implType = “cif”, mapperType = “cif-sg”)
+public class CustomerProfileCif implements CustomerProfile {
+
+```
+@Autowired
+@Qualifier("cif-sg")
+private CustomerProfileMapper mapper;
+
+@Override
+public CustomerProfileResponse getProfile(CustomerProfileRequest request) {
+    CustomerProfileResponseDTO dto = fetchDataFromCifSource(request);
+    return mapper.mapResponse(dto);
+}
+
+@Override
+public ProfileImplementationKey getImplementationKey() {
+    return new ProfileImplementationKey("cif", "cif-sg");
+}
+
+private CustomerProfileResponseDTO fetchDataFromCifSource(CustomerProfileRequest request) {
+    // Implementation specific logic
+    return new CustomerProfileResponseDTO();
+}
+```
+
+}
+
+@Component
+@Qualifier(“cif-sg”)
+@ConditionalOnProfileFeature(implType = “cif”, mapperType = “cif-sg”)
+public class CustomerProfileMapperCifSG implements CustomerProfileMapper {
+
+```
+@Override
+public CustomerProfileResponse mapResponse(CustomerProfileResponseDTO response) {
+    // Mapping logic specific to cif-sg
+    return new CustomerProfileResponse();
+}
+
+@Override
+public String getMapperType() {
+    return "cif-sg";
+}
+```
+
+}
+
+// 9. Auto-Configuration for Registration
+@Configuration
+@EnableConfigurationProperties(CustomerProfileProperties.class)
+public class CustomerProfileAutoConfiguration implements ApplicationListener<ContextRefreshedEvent> {
+
+```
+@Autowired
+private CustomerProfileRegistry registry;
+
+@Autowired(required = false)
+private List<CustomerProfile> implementations = Collections.emptyList();
+
+@Override
+public void onApplicationEvent(ContextRefreshedEvent event) {
+    // Register all available implementations
+    for (CustomerProfile implementation : implementations) {
+        registry.registerImplementation(implementation);
+    }
+}
+```
+
+}
+
+// 10. Main Service Interface for Consumer Applications
+@Component
+public class CustomerProfileService {
+
+```
+private final CustomerProfileRegistry registry;
+
+public CustomerProfileService(CustomerProfileRegistry registry) {
+    this.registry = registry;
+}
+
+public CustomerProfileResponse getProfile(String customerId) {
+    return getProfile(customerId, null); // Use default feature
+}
+
+public CustomerProfileResponse getProfile(String customerId, String feature) {
+    CustomerProfileRequest request = new CustomerProfileRequest(customerId, feature);
+    return registry.getProfile(request);
+}
+```
+
+}
+
+// 11. Sample Configuration Classes for Consumer Application
+// application.yml in consumer application:
+/*
+profile:
+impl-type: cmcp        # default implementation
+mapper-type: cmcp-sg   # default mapper
+features:
+gapi:
+impl-type: cif
+mapper-type: cif-sg
+mobile:
+impl-type: cmcp
+mapper-type: cmcp-sg
+email:
+impl-type: cif
+mapper-type: cif-sg
+*/
+
+
+// Consumer Application Controller Examples
+@RestController
+@RequestMapping(”/api/customers”)
+public class CustomerController {
+
+```
+@Autowired
+private CustomerProfileService customerProfileService;
+
+// Endpoint using default implementation (based on profile.impl-type and profile.mapper-type)
+@GetMapping("/{customerId}/profile")
+public ResponseEntity<CustomerProfileResponse> getProfile(@PathVariable String customerId) {
+    CustomerProfileResponse profile = customerProfileService.getProfile(customerId);
+    return ResponseEntity.ok(profile);
+}
+
+// Endpoint using specific feature implementation (e.g., gapi feature)
+@GetMapping("/{customerId}/profile/gapi")
+public ResponseEntity<CustomerProfileResponse> getGapiProfile(@PathVariable String customerId) {
+    CustomerProfileResponse profile = customerProfileService.getProfile(customerId, "gapi");
+    return ResponseEntity.ok(profile);
+}
+
+// Endpoint using mobile feature
+@GetMapping("/{customerId}/profile/mobile")
+public ResponseEntity<CustomerProfileResponse> getMobileProfile(@PathVariable String customerId) {
+    CustomerProfileResponse profile = customerProfileService.getProfile(customerId, "mobile");
+    return ResponseEntity.ok(profile);
+}
+
+// Dynamic endpoint that accepts feature as query parameter
+@GetMapping("/{customerId}/profile/dynamic")
+public ResponseEntity<CustomerProfileResponse> getDynamicProfile(
+        @PathVariable String customerId,
+        @RequestParam(required = false) String feature) {
+    CustomerProfileResponse profile = customerProfileService.getProfile(customerId, feature);
+    return ResponseEntity.ok(profile);
+}
+```
+
+}
+
+// Alternative: Direct Registry Usage for More Control
+@RestController
+@RequestMapping(”/api/advanced”)
+public class AdvancedCustomerController {
+
+```
+@Autowired
+private CustomerProfileRegistry registry;
+
+@PostMapping("/profile")
+public ResponseEntity<CustomerProfileResponse> getProfileAdvanced(@RequestBody CustomerProfileRequest request) {
+    try {
+        CustomerProfileResponse profile = registry.getProfile(request);
+        return ResponseEntity.ok(profile);
+    } catch (IllegalArgumentException | IllegalStateException e) {
+        return ResponseEntity.badRequest().body(null);
+    }
+}
+```
+
+}
+
+// Consumer Application Configuration
+@Configuration
+public class ConsumerAppConfiguration {
+
+```
+// Bean to demonstrate programmatic feature selection
+@Bean
+public FeatureSelector featureSelector() {
+    return new FeatureSelector();
+}
+
+public static class FeatureSelector {
+    @Autowired
+    private CustomerProfileService customerProfileService;
+    
+    public CustomerProfileResponse selectProfileByBusinessLogic(String customerId, String userType) {
+        String feature = null;
+        
+        // Business logic to determine feature
+        switch (userType) {
+            case "premium":
+                feature = "gapi";
+                break;
+            case "mobile_user":
+                feature = "mobile";
+                break;
+            case "email_notification":
+                feature = "email";
+                break;
+            default:
+                feature = null; // use default
+        }
+        
+        return customerProfileService.getProfile(customerId, feature);
+    }
+}
+```
+
+}
+
+// Service Layer Example
+@Service
+public class BusinessService {
+
+```
+@Autowired
+private CustomerProfileService customerProfileService;
+
+public void processCustomerData(String customerId, String channel) {
+    CustomerProfileResponse profile;
+    
+    // Different implementations based on channel
+    if ("api".equals(channel)) {
+        profile = customerProfileService.getProfile(customerId, "gapi");
+    } else if ("mobile".equals(channel)) {
+        profile = customerProfileService.getProfile(customerId, "mobile");
+    } else {
+        profile = customerProfileService.getProfile(customerId); // default
+    }
+    
+    // Process the profile data
+    processProfile(profile);
+}
+
+private void processProfile(CustomerProfileResponse profile) {
+    // Business logic here
+}
+```
+
+}
+
+// Integration Test Example
+@SpringBootTest
+public class CustomerProfileIntegrationTest {
+
+```
+@Autowired
+private CustomerProfileService customerProfileService;
+
+@Autowired
+private CustomerProfileRegistry registry;
+
+@Test
+public void testDefaultImplementation() {
+    CustomerProfileResponse response = customerProfileService.getProfile("CUST123");
+    assertNotNull(response);
+    // Verify it uses default implementation (cmcp + cmcp-sg based on config)
+}
+
+@Test
+public void testGapiFeatureImplementation() {
+    CustomerProfileResponse response = customerProfileService.getProfile("CUST123", "gapi");
+    assertNotNull(response);
+    // Verify it uses gapi feature implementation (cif + cif-sg)
+}
+
+@Test
+public void testRegistryDirectAccess() {
+    CustomerProfileRequest request = new CustomerProfileRequest("CUST123", "mobile");
+    CustomerProfileResponse response = registry.getProfile(request);
+    assertNotNull(response);
+}
+
+@Test
+public void testInvalidFeature() {
+    assertThrows(IllegalArgumentException.class, () -> {
+        customerProfileService.getProfile("CUST123", "invalid_feature");
+    });
+}
+```
+
+}
+
+// Example application.yml for consumer application
+/*
+profile:
+
+# Default configuration - will be used when feature is null
+
+impl-type: cmcp
+mapper-type: cmcp-sg
+
+# Feature-specific configurations
+
+features:
+gapi:
+impl-type: cif
+mapper-type: cif-sg
+mobile:
+impl-type: cmcp  
+mapper-type: cmcp-sg
+email:
+impl-type: cif
+mapper-type: cif-sg
+premium:
+impl-type: cif
+mapper-type: cif-sg
+
+# Other application properties
+
+spring:
+application:
+name: customer-service-consumer
+
+# Logging to see which implementations are loaded
+
+logging:
+level:
+com.yourpackage.profile: DEBUG
+*/
+
+// Maven dependency in consumer application pom.xml
+/*
+<dependency>
+<groupId>com.yourcompany</groupId>
+<artifactId>customer-profile-library</artifactId>
+<version>1.0.0</version>
+</dependency>
+*/
+
+// Spring Boot Main Class - Consumer Application
+@SpringBootApplication
+@ComponentScan(basePackages = {“com.yourpackage.consumer”, “com.yourpackage.profile”})
+public class CustomerServiceApplication {
+
+```
+public static void main(String[] args) {
+    SpringApplication.run(CustomerServiceApplication.class, args);
+}
+
+// Optional: Bean to log loaded implementations at startup
+@EventListener
+public void handleContextRefresh(ContextRefreshedEvent event) {
+    CustomerProfileRegistry registry = event.getApplicationContext().getBean(CustomerProfileRegistry.class);
+    // Log available implementations (you'd need to add a method to registry to list them)
+    System.out.println("Customer Profile implementations loaded successfully");
+}
+```
+
+}
+
+
