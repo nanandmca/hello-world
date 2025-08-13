@@ -729,3 +729,1006 @@ public void handleContextRefresh(ContextRefreshedEvent event) {
 }
 
 
+
+
+
+-_________________
+
+
+
+You’re absolutely right! The current design is too rigid. An application might need `implType = "cmcp"` but with different mapper types like `"cmcp-sg"` for one feature and `"cmcp-in"` for another feature. Let me redesign this to be more flexible:​​​​​​​​​​​​​​​​
+
+Now let me update the consumer application usage examples with the new flexible configuration:​​​​​​​​​​​​​​​​
+
+## Key Benefits of the Redesigned Solution:
+
+### 1. **Independent Loading of Implementations and Mappers**
+
+- `@ConditionalOnProfileImplementation("cmcp")` - loads CMCP implementation if ANY feature uses “cmcp”
+- `@ConditionalOnProfileMapper("cmcp-sg")` - loads SG mapper if ANY feature uses “cmcp-sg”
+- `@ConditionalOnProfileMapper("cmcp-in")` - loads IN mapper if ANY feature uses “cmcp-in”
+
+### 2. **Flexible Combinations**
+
+```yaml
+profile:
+  impl-type: cmcp
+  mapper-type: cmcp-sg
+  features:
+    india:
+      impl-type: cmcp      # Same implementation
+      mapper-type: cmcp-in # Different mapper
+    gapi:  
+      impl-type: cif       # Different implementation
+      mapper-type: cif-sg  # Different mapper
+```
+
+### 3. **Efficient Bean Loading**
+
+- Only loads implementations that are actually configured
+- Only loads mappers that are actually configured
+- Avoids unnecessary bean creation
+
+### 4. **Runtime Flexibility**
+
+- Same implementation can use different mappers based on feature
+- Different features can use same mapper with different implementations
+- Consumer applications can mix and match as needed
+
+### 5. **Configuration Examples**
+
+**Scenario A:** Same impl, different mappers by region
+
+```yaml
+features:
+  singapore:
+    impl-type: cmcp
+    mapper-type: cmcp-sg
+  india:
+    impl-type: cmcp  
+    mapper-type: cmcp-in
+```
+
+**Scenario B:** Different impl by customer type
+
+```yaml
+features:
+  corporate:
+    impl-type: cmcp
+    mapper-type: cmcp-sg
+  retail:
+    impl-type: cif
+    mapper-type: cif-sg
+```
+
+**Scenario C:** Mixed strategy
+
+```yaml
+features:
+  sg-corporate:
+    impl-type: cmcp
+    mapper-type: cmcp-sg
+  sg-retail:
+    impl-type: cif  
+    mapper-type: cif-sg
+  in-corporate:
+    impl-type: cmcp
+    mapper-type​​​​​​​​​​​​​​​​
+```
+
+
+// 1. Enhanced Request with Feature Support (same as before)
+public class CustomerProfileRequest {
+private String customerId;
+private String feature; // null = default, “gapi”, “mobile”, etc.
+
+```
+public CustomerProfileRequest(String customerId) {
+    this.customerId = customerId;
+    this.feature = null; // default
+}
+
+public CustomerProfileRequest(String customerId, String feature) {
+    this.customerId = customerId;
+    this.feature = feature;
+}
+
+// getters and setters
+```
+
+}
+
+// 2. Configuration Properties Class (same as before)
+@ConfigurationProperties(prefix = “profile”)
+@Component
+public class CustomerProfileProperties {
+
+```
+// Default configuration
+private String implType;
+private String mapperType;
+
+// Feature-specific configurations
+private Map<String, FeatureConfig> features = new HashMap<>();
+
+public static class FeatureConfig {
+    private String implType;
+    private String mapperType;
+    
+    // getters and setters
+    public String getImplType() { return implType; }
+    public void setImplType(String implType) { this.implType = implType; }
+    public String getMapperType() { return mapperType; }
+    public void setMapperType(String mapperType) { this.mapperType = mapperType; }
+}
+
+public FeatureConfig getConfigForFeature(String feature) {
+    if (feature == null) {
+        FeatureConfig defaultConfig = new FeatureConfig();
+        defaultConfig.setImplType(this.implType);
+        defaultConfig.setMapperType(this.mapperType);
+        return defaultConfig;
+    }
+    return features.get(feature);
+}
+
+// getters and setters
+public String getImplType() { return implType; }
+public void setImplType(String implType) { this.implType = implType; }
+public String getMapperType() { return mapperType; }
+public void setMapperType(String mapperType) { this.mapperType = mapperType; }
+public Map<String, FeatureConfig> getFeatures() { return features; }
+public void setFeatures(Map<String, FeatureConfig> features) { this.features = features; }
+```
+
+}
+
+// 3. Registry Key (same as before)
+public class ProfileImplementationKey {
+private final String implType;
+private final String mapperType;
+
+```
+public ProfileImplementationKey(String implType, String mapperType) {
+    this.implType = implType;
+    this.mapperType = mapperType;
+}
+
+@Override
+public boolean equals(Object o) {
+    if (this == o) return true;
+    if (o == null || getClass() != o.getClass()) return false;
+    ProfileImplementationKey that = (ProfileImplementationKey) o;
+    return Objects.equals(implType, that.implType) && 
+           Objects.equals(mapperType, that.mapperType);
+}
+
+@Override
+public int hashCode() {
+    return Objects.hash(implType, mapperType);
+}
+
+public String getImplType() { return implType; }
+public String getMapperType() { return mapperType; }
+
+@Override
+public String toString() {
+    return "ProfileImplementationKey{implType='" + implType + "', mapperType='" + mapperType + "'}";
+}
+```
+
+}
+
+// 4. Separate Conditional Annotations for Implementation and Mapper
+@Target({ElementType.TYPE})
+@Retention(RetentionPolicy.RUNTIME)
+@Conditional(OnProfileImplementationCondition.class)
+public @interface ConditionalOnProfileImplementation {
+String value(); // implType value (e.g., “cmcp”, “cif”)
+}
+
+@Target({ElementType.TYPE})
+@Retention(RetentionPolicy.RUNTIME)
+@Conditional(OnProfileMapperCondition.class)
+public @interface ConditionalOnProfileMapper {
+String value(); // mapperType value (e.g., “cmcp-sg”, “cmcp-in”, “cif-sg”)
+}
+
+// 5. Custom Condition for Implementation Loading
+public class OnProfileImplementationCondition implements Condition {
+
+```
+@Override
+public boolean matches(ConditionContext context, AnnotatedTypeMetadata metadata) {
+    MultiValueMap<String, Object> attributes = metadata.getAllAnnotationAttributes(
+        ConditionalOnProfileImplementation.class.getName()
+    );
+    
+    if (attributes == null) {
+        return false;
+    }
+    
+    String implType = (String) attributes.getFirst("value");
+    Environment env = context.getEnvironment();
+    
+    // Check if this implementation is needed for default configuration
+    boolean neededForDefault = checkDefaultImplType(env, implType);
+    
+    // Check if this implementation is needed for any feature configuration
+    boolean neededForFeature = checkFeatureImplTypes(env, implType);
+    
+    return neededForDefault || neededForFeature;
+}
+
+private boolean checkDefaultImplType(Environment env, String implType) {
+    String configuredImplType = env.getProperty("profile.impl-type");
+    return implType.equals(configuredImplType);
+}
+
+private boolean checkFeatureImplTypes(Environment env, String implType) {
+    // Scan for all feature-specific impl-type properties
+    ConfigurableEnvironment configurableEnv = (ConfigurableEnvironment) env;
+    for (PropertySource<?> propertySource : configurableEnv.getPropertySources()) {
+        if (propertySource instanceof MapPropertySource) {
+            Map<String, Object> source = ((MapPropertySource) propertySource).getSource();
+            for (Map.Entry<String, Object> entry : source.entrySet()) {
+                String key = entry.getKey();
+                if (key.startsWith("profile.features.") && key.endsWith(".impl-type")) {
+                    String featureImplType = (String) entry.getValue();
+                    if (implType.equals(featureImplType)) {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    return false;
+}
+```
+
+}
+
+// 6. Custom Condition for Mapper Loading
+public class OnProfileMapperCondition implements Condition {
+
+```
+@Override
+public boolean matches(ConditionContext context, AnnotatedTypeMetadata metadata) {
+    MultiValueMap<String, Object> attributes = metadata.getAllAnnotationAttributes(
+        ConditionalOnProfileMapper.class.getName()
+    );
+    
+    if (attributes == null) {
+        return false;
+    }
+    
+    String mapperType = (String) attributes.getFirst("value");
+    Environment env = context.getEnvironment();
+    
+    // Check if this mapper is needed for default configuration
+    boolean neededForDefault = checkDefaultMapperType(env, mapperType);
+    
+    // Check if this mapper is needed for any feature configuration
+    boolean neededForFeature = checkFeatureMapperTypes(env, mapperType);
+    
+    return neededForDefault || neededForFeature;
+}
+
+private boolean checkDefaultMapperType(Environment env, String mapperType) {
+    String configuredMapperType = env.getProperty("profile.mapper-type");
+    return mapperType.equals(configuredMapperType);
+}
+
+private boolean checkFeatureMapperTypes(Environment env, String mapperType) {
+    // Scan for all feature-specific mapper-type properties
+    ConfigurableEnvironment configurableEnv = (ConfigurableEnvironment) env;
+    for (PropertySource<?> propertySource : configurableEnv.getPropertySources()) {
+        if (propertySource instanceof MapPropertySource) {
+            Map<String, Object> source = ((MapPropertySource) propertySource).getSource();
+            for (Map.Entry<String, Object> entry : source.entrySet()) {
+                String key = entry.getKey();
+                if (key.startsWith("profile.features.") && key.endsWith(".mapper-type")) {
+                    String featureMapperType = (String) entry.getValue();
+                    if (mapperType.equals(featureMapperType)) {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    return false;
+}
+```
+
+}
+
+// 7. Enhanced Interfaces (same as before)
+public interface CustomerProfile {
+CustomerProfileResponse getProfile(CustomerProfileRequest request);
+String getImplementationType();
+}
+
+public interface CustomerProfileMapper {
+CustomerProfileResponse mapResponse(CustomerProfileResponseDTO response);
+String getMapperType();
+}
+
+// 8. Registry for Managing Multiple Implementations
+@Component
+public class CustomerProfileRegistry {
+
+```
+private final Map<String, CustomerProfile> implementations = new HashMap<>();
+private final Map<String, CustomerProfileMapper> mappers = new HashMap<>();
+private final CustomerProfileProperties properties;
+
+public CustomerProfileRegistry(CustomerProfileProperties properties) {
+    this.properties = properties;
+}
+
+public void registerImplementation(CustomerProfile implementation) {
+    implementations.put(implementation.getImplementationType(), implementation);
+}
+
+public void registerMapper(CustomerProfileMapper mapper) {
+    mappers.put(mapper.getMapperType(), mapper);
+}
+
+public CustomerProfile getImplementation(String implType) {
+    CustomerProfile implementation = implementations.get(implType);
+    if (implementation == null) {
+        throw new IllegalStateException("No implementation found for implType: " + implType);
+    }
+    return implementation;
+}
+
+public CustomerProfileMapper getMapper(String mapperType) {
+    CustomerProfileMapper mapper = mappers.get(mapperType);
+    if (mapper == null) {
+        throw new IllegalStateException("No mapper found for mapperType: " + mapperType);
+    }
+    return mapper;
+}
+
+public CustomerProfileResponse getProfile(CustomerProfileRequest request) {
+    CustomerProfileProperties.FeatureConfig config = properties.getConfigForFeature(request.getFeature());
+    
+    if (config == null) {
+        throw new IllegalArgumentException("No configuration found for feature: " + request.getFeature());
+    }
+    
+    CustomerProfile implementation = getImplementation(config.getImplType());
+    
+    // Create a composite service that knows about the mapper
+    return new CustomerProfileComposite(implementation, getMapper(config.getMapperType()))
+        .getProfile(request);
+}
+
+// Helper class to combine implementation with appropriate mapper
+private static class CustomerProfileComposite {
+    private final CustomerProfile implementation;
+    private final CustomerProfileMapper mapper;
+    
+    public CustomerProfileComposite(CustomerProfile implementation, CustomerProfileMapper mapper) {
+        this.implementation = implementation;
+        this.mapper = mapper;
+    }
+    
+    public CustomerProfileResponse getProfile(CustomerProfileRequest request) {
+        // This would need to be adapted based on your actual implementation pattern
+        // For now, delegate to implementation and let it handle mapper injection
+        return implementation.getProfile(request);
+    }
+}
+```
+
+}
+
+// 9. Implementation Classes with Separate Conditions
+
+// CMCP Implementation - loaded when any feature uses “cmcp” impl-type
+@Component
+@ConditionalOnProfileImplementation(“cmcp”)
+public class CustomerProfileCmcp implements CustomerProfile {
+
+```
+@Autowired
+private CustomerProfileRegistry registry;
+
+@Override
+public CustomerProfileResponse getProfile(CustomerProfileRequest request) {
+    // Get the appropriate mapper for this request's feature
+    CustomerProfileProperties properties = getProperties(); // inject this
+    CustomerProfileProperties.FeatureConfig config = properties.getConfigForFeature(request.getFeature());
+    
+    CustomerProfileMapper mapper = registry.getMapper(config.getMapperType());
+    
+    // Fetch data using CMCP logic
+    CustomerProfileResponseDTO dto = fetchDataFromCmcpSource(request);
+    return mapper.mapResponse(dto);
+}
+
+@Override
+public String getImplementationType() {
+    return "cmcp";
+}
+
+private CustomerProfileResponseDTO fetchDataFromCmcpSource(CustomerProfileRequest request) {
+    // CMCP-specific data fetching logic
+    return new CustomerProfileResponseDTO();
+}
+
+@Autowired
+private CustomerProfileProperties properties;
+
+private CustomerProfileProperties getProperties() {
+    return properties;
+}
+```
+
+}
+
+// CIF Implementation - loaded when any feature uses “cif” impl-type
+@Component
+@ConditionalOnProfileImplementation(“cif”)
+public class CustomerProfileCif implements CustomerProfile {
+
+```
+@Autowired
+private CustomerProfileRegistry registry;
+
+@Autowired
+private CustomerProfileProperties properties;
+
+@Override
+public CustomerProfileResponse getProfile(CustomerProfileRequest request) {
+    CustomerProfileProperties.FeatureConfig config = properties.getConfigForFeature(request.getFeature());
+    CustomerProfileMapper mapper = registry.getMapper(config.getMapperType());
+    
+    CustomerProfileResponseDTO dto = fetchDataFromCifSource(request);
+    return mapper.mapResponse(dto);
+}
+
+@Override
+public String getImplementationType() {
+    return "cif";
+}
+
+private CustomerProfileResponseDTO fetchDataFromCifSource(CustomerProfileRequest request) {
+    // CIF-specific data fetching logic
+    return new CustomerProfileResponseDTO();
+}
+```
+
+}
+
+// Mapper Implementations - loaded independently based on mapper-type usage
+
+@Component
+@ConditionalOnProfileMapper(“cmcp-sg”)
+public class CustomerProfileMapperCmcpSG implements CustomerProfileMapper {
+
+```
+@Override
+public CustomerProfileResponse mapResponse(CustomerProfileResponseDTO response) {
+    // CMCP Singapore specific mapping logic
+    return new CustomerProfileResponse();
+}
+
+@Override
+public String getMapperType() {
+    return "cmcp-sg";
+}
+```
+
+}
+
+@Component
+@ConditionalOnProfileMapper(“cmcp-in”)
+public class CustomerProfileMapperCmcpIN implements CustomerProfileMapper {
+
+```
+@Override
+public CustomerProfileResponse mapResponse(CustomerProfileResponseDTO response) {
+    // CMCP India specific mapping logic
+    return new CustomerProfileResponse();
+}
+
+@Override
+public String getMapperType() {
+    return "cmcp-in";
+}
+```
+
+}
+
+@Component
+@ConditionalOnProfileMapper(“cif-sg”)
+public class CustomerProfileMapperCifSG implements CustomerProfileMapper {
+
+```
+@Override
+public CustomerProfileResponse mapResponse(CustomerProfileResponseDTO response) {
+    // CIF Singapore specific mapping logic
+    return new CustomerProfileResponse();
+}
+
+@Override
+public String getMapperType() {
+    return "cif-sg";
+}
+```
+
+}
+
+@Component
+@ConditionalOnProfileMapper(“cif-in”)
+public class CustomerProfileMapperCifIN implements CustomerProfileMapper {
+
+```
+@Override
+public CustomerProfileResponse mapResponse(CustomerProfileResponseDTO response) {
+    // CIF India specific mapping logic
+    return new CustomerProfileResponse();
+}
+
+@Override
+public String getMapperType() {
+    return "cif-in";
+}
+```
+
+}
+
+// 10. Auto-Configuration for Registration
+@Configuration
+@EnableConfigurationProperties(CustomerProfileProperties.class)
+public class CustomerProfileAutoConfiguration implements ApplicationListener<ContextRefreshedEvent> {
+
+```
+@Autowired
+private CustomerProfileRegistry registry;
+
+@Autowired(required = false)
+private List<CustomerProfile> implementations = Collections.emptyList();
+
+@Autowired(required = false)
+private List<CustomerProfileMapper> mappers = Collections.emptyList();
+
+@Override
+public void onApplicationEvent(ContextRefreshedEvent event) {
+    // Register all available implementations
+    for (CustomerProfile implementation : implementations) {
+        registry.registerImplementation(implementation);
+    }
+    
+    // Register all available mappers
+    for (CustomerProfileMapper mapper : mappers) {
+        registry.registerMapper(mapper);
+    }
+}
+```
+
+}
+
+// 11. Main Service Interface (same as before)
+@Component
+public class CustomerProfileService {
+
+```
+private final CustomerProfileRegistry registry;
+
+public CustomerProfileService(CustomerProfileRegistry registry) {
+    this.registry = registry;
+}
+
+public CustomerProfileResponse getProfile(String customerId) {
+    return getProfile(customerId, null);
+}
+
+public CustomerProfileResponse getProfile(String customerId, String feature) {
+    CustomerProfileRequest request = new CustomerProfileRequest(customerId, feature);
+    return registry.getProfile(request);
+}
+```
+
+}
+
+// Response DTOs (add these missing classes)
+public class CustomerProfileResponse {
+private String customerId;
+private String name;
+private String email;
+private String profileSource;
+private String mapperUsed;
+
+```
+// constructors, getters, setters
+```
+
+}
+
+public class CustomerProfileResponseDTO {
+private String customerId;
+private String rawData;
+private Map<String, Object> additionalData;
+
+```
+// constructors, getters, setters
+```
+
+}
+
+
+// Consumer Application Configuration Examples
+
+// Scenario 1: Same impl-type (cmcp) with different mapper-types for different features
+// application.yml
+/*
+profile:
+
+# Default configuration
+
+impl-type: cmcp
+mapper-type: cmcp-sg
+
+# Feature-specific configurations - same impl-type, different mappers
+
+features:
+singapore:
+impl-type: cmcp      # Same implementation
+mapper-type: cmcp-sg # Singapore mapper
+india:
+impl-type: cmcp      # Same implementation  
+mapper-type: cmcp-in # India mapper
+gapi:
+impl-type: cif       # Different implementation
+mapper-type: cif-sg  # Singapore CIF mapper
+mobile:
+impl-type: cif       # Different implementation
+mapper-type: cif-in  # India CIF mapper
+*/
+
+// With this configuration, the following beans will be loaded:
+// Implementations: CustomerProfileCmcp, CustomerProfileCif
+// Mappers: CustomerProfileMapperCmcpSG, CustomerProfileMapperCmcpIN, CustomerProfileMapperCifSG, CustomerProfileMapperCifIN
+
+// Consumer Application Controller Examples
+@RestController
+@RequestMapping(”/api/customers”)
+public class CustomerController {
+
+```
+@Autowired
+private CustomerProfileService customerProfileService;
+
+// Default endpoint - uses cmcp + cmcp-sg
+@GetMapping("/{customerId}/profile")
+public ResponseEntity<CustomerProfileResponse> getProfile(@PathVariable String customerId) {
+    CustomerProfileResponse profile = customerProfileService.getProfile(customerId);
+    return ResponseEntity.ok(profile);
+}
+
+// Singapore specific - uses cmcp + cmcp-sg  
+@GetMapping("/{customerId}/profile/singapore")
+public ResponseEntity<CustomerProfileResponse> getSingaporeProfile(@PathVariable String customerId) {
+    CustomerProfileResponse profile = customerProfileService.getProfile(customerId, "singapore");
+    return ResponseEntity.ok(profile);
+}
+
+// India specific - uses cmcp + cmcp-in (same impl, different mapper)
+@GetMapping("/{customerId}/profile/india")
+public ResponseEntity<CustomerProfileResponse> getIndiaProfile(@PathVariable String customerId) {
+    CustomerProfileResponse profile = customerProfileService.getProfile(customerId, "india");
+    return ResponseEntity.ok(profile);
+}
+
+// GAPI feature - uses cif + cif-sg
+@GetMapping("/{customerId}/profile/gapi")
+public ResponseEntity<CustomerProfileResponse> getGapiProfile(@PathVariable String customerId) {
+    CustomerProfileResponse profile = customerProfileService.getProfile(customerId, "gapi");
+    return ResponseEntity.ok(profile);
+}
+
+// Mobile feature - uses cif + cif-in
+@GetMapping("/{customerId}/profile/mobile")
+public ResponseEntity<CustomerProfileResponse> getMobileProfile(@PathVariable String customerId) {
+    CustomerProfileResponse profile = customerProfileService.getProfile(customerId, "mobile");
+    return ResponseEntity.ok(profile);
+}
+```
+
+}
+
+// Scenario 2: Different Consumer Application Configuration
+// application-scenario2.yml
+/*
+profile:
+
+# Default uses CIF with Singapore mapper
+
+impl-type: cif
+mapper-type: cif-sg
+
+features:
+legacy:
+impl-type: cmcp      # Legacy system uses CMCP
+mapper-type: cmcp-sg # Singapore mapping for legacy
+india_legacy:
+impl-type: cmcp      # Legacy system uses CMCP
+mapper-type: cmcp-in # India mapping for legacy
+premium:
+impl-type: cif       # Premium uses CIF
+mapper-type: cif-in  # India mapping for premium
+*/
+
+// With this configuration, the same library JAR will load:
+// Implementations: CustomerProfileCmcp, CustomerProfileCif  
+// Mappers: CustomerProfileMapperCmcpSG, CustomerProfileMapperCmcpIN, CustomerProfileMapperCifSG, CustomerProfileMapperCifIN
+
+@Service
+public class RegionBasedProfileService {
+
+```
+@Autowired
+private CustomerProfileService customerProfileService;
+
+public CustomerProfileResponse getProfileByRegion(String customerId, String region, boolean isLegacy) {
+    String feature;
+    
+    if (isLegacy && "singapore".equals(region)) {
+        feature = "legacy";
+    } else if (isLegacy && "india".equals(region)) {
+        feature = "india_legacy";
+    } else if ("india".equals(region)) {
+        feature = "premium";
+    } else {
+        feature = null; // default - cif + cif-sg
+    }
+    
+    return customerProfileService.getProfile(customerId, feature);
+}
+```
+
+}
+
+// Scenario 3: Mixed Implementation Strategy
+@Service  
+public class BusinessLogicService {
+
+```
+@Autowired
+private CustomerProfileService customerProfileService;
+
+public void processCustomerByBusinessRules(String customerId, String customerType, String region) {
+    CustomerProfileResponse profile;
+    
+    // Business rules determine which implementation + mapper combination to use
+    if ("corporate".equals(customerType)) {
+        if ("singapore".equals(region)) {
+            // Corporate Singapore: CMCP implementation + Singapore mapper
+            profile = customerProfileService.getProfile(customerId, "singapore");
+        } else {
+            // Corporate India: CMCP implementation + India mapper  
+            profile = customerProfileService.getProfile(customerId, "india");
+        }
+    } else if ("retail".equals(customerType)) {
+        if ("singapore".equals(region)) {
+            // Retail Singapore: CIF implementation + Singapore mapper
+            profile = customerProfileService.getProfile(customerId, "gapi");
+        } else {
+            // Retail India: CIF implementation + India mapper
+            profile = customerProfileService.getProfile(customerId, "mobile");
+        }
+    } else {
+        // Default case
+        profile = customerProfileService.getProfile(customerId);
+    }
+    
+    // Process the profile
+    processProfile(profile, customerType, region);
+}
+
+private void processProfile(CustomerProfileResponse profile, String customerType, String region) {
+    // Business processing logic
+    System.out.println("Processing " + customerType + " customer from " + region);
+}
+```
+
+}
+
+// Advanced Usage: Dynamic Feature Selection
+@RestController
+@RequestMapping(”/api/dynamic”)
+public class DynamicProfileController {
+
+```
+@Autowired
+private CustomerProfileService customerProfileService;
+
+@PostMapping("/profile")
+public ResponseEntity<CustomerProfileResponse> getDynamicProfile(@RequestBody ProfileRequest request) {
+    String feature = determineFeature(request);
+    CustomerProfileResponse profile = customerProfileService.getProfile(request.getCustomerId(), feature);
+    return ResponseEntity.ok(profile);
+}
+
+private String determineFeature(ProfileRequest request) {
+    // Complex business logic to determine feature
+    String region = request.getRegion();
+    String channel = request.getChannel();
+    boolean isPremium = request.isPremium();
+    
+    if ("api".equals(channel) && "singapore".equals(region)) {
+        return "singapore";
+    } else if ("api".equals(channel) && "india".equals(region)) {
+        return "india";
+    } else if ("mobile".equals(channel) && isPremium) {
+        return "mobile";
+    } else if ("web".equals(channel)) {
+        return "gapi";
+    }
+    
+    return null; // default
+}
+
+public static class ProfileRequest {
+    private String customerId;
+    private String region;
+    private String channel;
+    private boolean premium;
+    
+    // getters and setters
+    public String getCustomerId() { return customerId; }
+    public void setCustomerId(String customerId) { this.customerId = customerId; }
+    public String getRegion() { return region; }
+    public void setRegion(String region) { this.region = region; }
+    public String getChannel() { return channel; }
+    public void setChannel(String channel) { this.channel = channel; }
+    public boolean isPremium() { return premium; }
+    public void setPremium(boolean premium) { this.premium = premium; }
+}
+```
+
+}
+
+// Integration Test Examples
+@SpringBootTest
+@TestPropertySource(properties = {
+“profile.impl-type=cmcp”,
+“profile.mapper-type=cmcp-sg”,
+“profile.features.india.impl-type=cmcp”,
+“profile.features.india.mapper-type=cmcp-in”,
+“profile.features.gapi.impl-type=cif”,
+“profile.features.gapi.mapper-type=cif-sg”
+})
+public class FlexibleProfileTest {
+
+```
+@Autowired
+private CustomerProfileService customerProfileService;
+
+@Autowired  
+private CustomerProfileRegistry registry;
+
+@Test
+public void testSameImplTypeDifferentMappers() {
+    // Both should use CMCP implementation but different mappers
+    CustomerProfileResponse sgProfile = customerProfileService.getProfile("CUST123", null); // default: cmcp + cmcp-sg
+    CustomerProfileResponse inProfile = customerProfileService.getProfile("CUST123", "india"); // cmcp + cmcp-in
+    
+    assertNotNull(sgProfile);
+    assertNotNull(inProfile);
+    
+    // Verify they used different mappers (this would depend on your actual response structure)
+    // For example, if mapper type is included in response:
+    // assertEquals("cmcp-sg", sgProfile.getMapperUsed());
+    // assertEquals("cmcp-in", inProfile.getMapperUsed());
+}
+
+@Test
+public void testDifferentImplTypeSameRegion() {
+    // Singapore region but different implementation types
+    CustomerProfileResponse cmcpProfile = customerProfileService.getProfile("CUST123", null); // cmcp + cmcp-sg  
+    CustomerProfileResponse cifProfile = customerProfileService.getProfile("CUST123", "gapi"); // cif + cif-sg
+    
+    assertNotNull(cmcpProfile);
+    assertNotNull(cifProfile);
+}
+
+@Test
+public void testRegistryDirectAccess() {
+    // Test that registry has both implementations and all mappers
+    CustomerProfile cmcpImpl = registry.getImplementation("cmcp");
+    CustomerProfile cifImpl = registry.getImplementation("cif");
+    
+    CustomerProfileMapper sgMapper = registry.getMapper("cmcp-sg");
+    CustomerProfileMapper inMapper = registry.getMapper("cmcp-in");
+    CustomerProfileMapper cifSgMapper = registry.getMapper("cif-sg");
+    
+    assertNotNull(cmcpImpl);
+    assertNotNull(cifImpl);
+    assertNotNull(sgMapper);
+    assertNotNull(inMapper);
+    assertNotNull(cifSgMapper);
+}
+```
+
+}
+
+// Configuration for minimal loading (only what’s needed)
+// application-minimal.yml
+/*
+profile:
+impl-type: cmcp
+mapper-type: cmcp-sg
+
+# No features defined - only loads CustomerProfileCmcp and CustomerProfileMapperCmcpSG
+
+*/
+
+// Configuration for maximum flexibility  
+// application-full.yml
+/*
+profile:
+impl-type: cmcp
+mapper-type: cmcp-sg
+
+features:
+sg-corporate:
+impl-type: cmcp
+mapper-type: cmcp-sg
+sg-retail:  
+impl-type: cif
+mapper-type: cif-sg
+in-corporate:
+impl-type: cmcp  
+mapper-type: cmcp-in
+in-retail:
+impl-type: cif
+mapper-type: cif-in
+mobile:
+impl-type: cif
+mapper-type: cif-in
+api:
+impl-type: cmcp
+mapper-type: cmcp-sg
+*/
+
+// This loads ALL available implementations and mappers for maximum flexibility
+
+@SpringBootApplication
+@ComponentScan(basePackages = {“com.yourpackage.consumer”, “com.yourpackage.profile”})
+public class FlexibleCustomerServiceApplication {
+
+```
+public static void main(String[] args) {
+    SpringApplication.run(FlexibleCustomerServiceApplication.class, args);
+}
+
+// Startup logging to see what was loaded
+@EventListener
+public void handleContextRefresh(ContextRefreshedEvent event) {
+    ApplicationContext context = event.getApplicationContext();
+    
+    // Log loaded implementations
+    String[] impls = context.getBeanNamesForType(CustomerProfile.class);
+    System.out.println("Loaded implementations: " + Arrays.toString(impls));
+    
+    // Log loaded mappers  
+    String[] mappers = context.getBeanNamesForType(CustomerProfileMapper.class);
+    System.out.println("Loaded mappers: " + Arrays.toString(mappers));
+}
+```
+
+}
+
+
+
+
+
+
+
+
+
+
