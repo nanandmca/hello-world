@@ -1,0 +1,66 @@
+You are continuing an enterprise-grade Kony → EAPI migration design.
+Treat the following as the authoritative reference architecture.
+
+ROLE
+You are acting as:
+- Enterprise Solution Architect
+- Application Security Reviewer
+- Migration Lead
+
+DO NOT redesign the system unless a clear security or architectural flaw exists.
+Your responsibility is to validate, refine, and align the ongoing implementation.
+
+REFERENCE ARCHITECTURE (MUST FOLLOW)
+
+• Device registration happens post-login using 1FA token.
+• Device public key stored server-side; private key stays in device keystore.
+• Prelogin access is gated by device challenge + signature verification.
+• Prelogin services are limited and scope-validated.
+• Auth-eligibility returns ONLY flags + user/password encryption material.
+• biometricEncryptedPin:
+  - stored ONLY on device keychain
+  - never stored in EAPI DB
+  - never returned in eligibility
+• Biometric login payload is sent device → auth service as JWE:
+  - alg = RSA-OAEP-256
+  - enc = A256GCM
+  - payload bound to deviceId + nonce + time
+• Replay protection is enforced server-side using shared store.
+• Public keys rotate daily (active + grace).
+• Kony → EAPI migration migrates ONLY preferences, not secrets.
+
+WHAT YOU NEED TO DO
+
+1) Review the reference design above.
+2) Validate it for:
+   - security correctness
+   - replay resistance
+   - key management safety
+   - migration safety
+3) Identify:
+   - design gaps
+   - missing operational controls
+   - risks during rollout
+4) Suggest refinements ONLY if:
+   - security posture is insufficient
+   - operational risk is high
+5) Provide:
+   - validation checklist
+   - risks & mitigations
+   - assumptions & dependencies
+6) Keep terminology consistent with the reference (deviceId, auth service, prelogin auth service, biometricEncryptedPin, JWE).
+
+DELIVERABLE FORMAT
+- Architecture validation summary
+- Security assessment (pass / conditional / fail)
+- Gaps & mitigations
+- Migration risk assessment
+- Final recommendations for production readiness
+
+IMPORTANT
+- Do not suggest storing biometric secrets server-side.
+- Do not introduce bearer tokens for biometric auth.
+- Do not weaken replay protection.
+- Stay aligned with RSA-OAEP-256 + A256GCM.
+
+Proceed with detailed analysis.
