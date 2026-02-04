@@ -1,0 +1,1367 @@
+Yep — this is one of those questions where the database behaves very predictably, but it’s still good you’re double-checking 👍
+I’ll answer it cleanly and practically.
+
+⸻
+
+1️⃣ What exactly happens when you DROP TABLE?
+
+When you run:
+
+DROP TABLE my_table;
+
+👉 Everything tied to that table is dropped automatically, including:
+	•	✅ The table data
+	•	✅ All indexes (primary, unique, secondary)
+	•	✅ Constraints
+	•	Primary key
+	•	Unique key
+	•	Check constraints
+	•	✅ Triggers defined on that table
+	•	✅ Table-level privileges
+	•	✅ Auto-increment state
+	•	✅ Storage metadata (tablespace segments)
+
+In short:
+After DROP TABLE, the database forgets the table ever existed.
+
+There is no leftover index, constraint, or metadata hanging around.
+
+⸻
+
+2️⃣ Can I recreate the table using the same old DDL?
+
+✔ Yes — 100% safe.
+
+Example:
+
+DROP TABLE my_table;
+
+CREATE TABLE my_table (
+  id INT PRIMARY KEY,
+  name VARCHAR(100),
+  email VARCHAR(100),
+  INDEX idx_email (email)
+);
+
+This works exactly the same as the first time you created it.
+
+Why?
+	•	Index names are scoped to the table
+	•	Since the table is gone, the old index names are gone too
+	•	The database treats this as a brand-new object
+
+⸻
+
+3️⃣ Do I need to change index names?
+
+❌ No, not if the table was dropped
+
+You can safely reuse:
+	•	Same table name
+	•	Same index names
+	•	Same constraint names
+
+Example (perfectly fine):
+
+CREATE TABLE orders (
+  order_id BIGINT PRIMARY KEY,
+  customer_id BIGINT,
+  INDEX idx_customer_id (customer_id)
+);
+
+Even if idx_customer_id existed earlier — it was destroyed with the table.
+
+⸻
+
+4️⃣ When would index name conflicts happen?
+
+Only in these cases 👇
+
+❌ Case 1: Table NOT dropped
+
+CREATE INDEX idx_email ON my_table(email);
+-- ERROR if idx_email already exists on my_table
+
+❌ Case 2: Some databases + global constraint naming
+
+(rare, DB-specific, mostly with constraints — not indexes)
+
+Example:
+
+CONSTRAINT pk_orders PRIMARY KEY (id)
+
+If the table still exists, constraint names must be unique within schema rules.
+
+But again — not applicable after DROP TABLE.
+
+⸻
+
+5️⃣ Special notes (important in real systems)
+
+🔹 Foreign keys from other tables
+
+If another table references this table:
+
+orders.customer_id → customers.id
+
+Then:
+	•	DROP TABLE customers may ❌ fail
+	•	Or require:
+
+DROP TABLE customers CASCADE;
+
+Be careful in PROD.
+
+⸻
+
+🔹 Migration tools (Flyway / Liquibase)
+
+Since you mentioned Flyway earlier in other chats:
+	•	Reusing same DDL after DROP TABLE is fine
+	•	But never rely on DROP+CREATE in PROD migrations unless intentional
+	•	Prefer:
+	•	ALTER TABLE
+	•	versioned migrations
+
+⸻
+
+6️⃣ Quick decision guide
+
+Scenario	Safe to reuse same DDL?
+DROP TABLE + CREATE TABLE	✅ Yes
+Same index names	✅ Yes
+Same constraint names	✅ Yes
+Table not dropped	❌ No
+FK dependencies exist	⚠️ Check first
+
+
+⸻
+
+✅ Bottom line
+	•	DROP TABLE removes everything — data, indexes, constraints
+	•	Reusing the same old DDL is totally safe
+	•	No need to rename indexes
+	•	Just watch out for foreign key dependencies in other tables
+
+If you want, tell me:
+	•	DB type (MySQL / MariaDB / Oracle / Postgres)
+	•	PROD vs DEV
+	•	Migration tool (Flyway?)
+
+I’ll give you a safe, production-grade checklist for that environment.
+
+
+
+It depends what you’re trying to achieve: “empty the data” or “rebuild the object.” In most real systems, TRUNCATE is the best way to empty a table; DROP+CREATE is only better when you truly want to recreate/reshape the table.
+
+Here’s the practical comparison (works for MySQL/MariaDB and broadly similar elsewhere):
+
+⸻
+
+What each one does
+
+TRUNCATE TABLE t;
+	•	Empties all rows fast (typically deallocates/recreates the data pages)
+	•	Keeps the table definition intact
+	•	Keeps indexes (definition remains; contents become empty)
+	•	Usually resets AUTO_INCREMENT back to start (common in MySQL/MariaDB)
+	•	Permissions remain (since the table object remains)
+
+DROP TABLE t; + CREATE TABLE t (...);
+	•	Deletes the table object completely
+	•	Drops everything tied to the table:
+	•	indexes, constraints, triggers, permissions, auto-inc state, storage metadata
+	•	Recreates it from scratch using your DDL
+
+⸻
+
+Which is “better” in practice?
+
+✅ Use TRUNCATE when:
+
+You want to quickly clear data but keep structure the same.
+
+Best for:
+	•	staging / temp tables
+	•	reloading reference tables
+	•	clearing test data
+	•	bulk reload pipelines
+
+Why it’s better:
+	•	fast
+	•	simple
+	•	less risk (you don’t accidentally recreate with wrong charset/engine/partitioning/etc.)
+	•	keeps grants/permissions and object identity
+
+⸻
+
+✅ Use DROP + CREATE when:
+
+You want to rebuild the table definition or cleanly reset everything.
+
+Best for:
+	•	changing table structure drastically (engine/partitioning/row format)
+	•	removing/replacing triggers
+	•	resetting privileges intentionally
+	•	clearing “object baggage” in dev/test environments
+
+Why it can be better:
+	•	ensures you recreate exactly as per DDL
+	•	wipes out triggers/constraints you may not want
+
+⸻
+
+Key differences that matter (MySQL/MariaDB reality)
+
+1) Foreign Keys
+	•	TRUNCATE often fails if the table is referenced by a foreign key (even if child table is empty), unless you drop/disable constraints or handle dependencies properly.
+	•	DROP also fails unless you drop dependent tables first, or you use CASCADE in databases that support it (MySQL doesn’t do DROP TABLE ... CASCADE like Postgres).
+
+So if there are FK relationships, you must plan the order either way.
+
+2) Triggers
+	•	TRUNCATE does not fire row triggers (DELETE triggers).
+	•	DROP+CREATE removes triggers entirely (unless recreated).
+
+3) Logging / Replication
+	•	Both are DDL-ish operations and can behave differently from DELETE:
+	•	TRUNCATE is typically “all-or-nothing” and efficient
+	•	replication/binlog semantics differ by setup, but both generally replicate fine
+
+4) Permissions & Object Identity
+	•	TRUNCATE keeps grants.
+	•	DROP+CREATE loses grants unless your DDL re-adds them (or your DB has default privilege automation).
+
+This alone is a big reason teams prefer TRUNCATE for “emptying”.
+
+5) Safer for production
+	•	TRUNCATE is safer than DROP+CREATE because you’re not rebuilding the object (less chance of recreating with slightly different DDL).
+	•	DROP+CREATE is riskier: wrong DDL, missing indexes, wrong charset/collation, wrong engine, missing grants.
+
+⸻
+
+Recommendation (simple rule)
+	•	If your goal is just to clear all rows: ✅ TRUNCATE
+	•	If your goal is to rebuild schema / remove triggers / reset everything: ✅ DROP + CREATE
+	•	If you need trigger behavior or conditional delete: use DELETE (slower, but controlled)
+
+⸻
+
+If you tell me:
+	1.	Is it MariaDB?
+	2.	Does the table have foreign keys (parent/child)?
+	3.	Is this DEV/UAT/PROD?
+
+…I’ll suggest the safest exact approach + the right SQL sequence for your case.
+
+
+
+For 5 million rows, the fastest and safest “empty the table” option is usually TRUNCATE — if you’re allowed to use it (no FK blockers) and you don’t need row-level deletes.
+
+Speed (typical)
+	1.	TRUNCATE ✅ fastest
+
+	•	It doesn’t delete row-by-row; it effectively resets the table’s storage.
+	•	For 5M rows it’s usually seconds (depends on disk/engine).
+
+	2.	DROP + CREATE ✅ also very fast (often comparable to TRUNCATE)
+
+	•	Drops the object and recreates it.
+	•	Time mostly depends on: table metadata + index creation (but empty table index creation is quick).
+
+	3.	DELETE FROM table; ❌ slowest
+
+	•	Deletes rows one by one (even if optimized), generates lots of undo/log activity.
+	•	For 5M rows it can be minutes to hours depending on system and indexes.
+
+⸻
+
+Which one is the “good option”?
+
+✅ If your goal is “empty the table and reload”
+
+Use TRUNCATE TABLE if:
+	•	The table is not referenced by foreign keys (or you’re clearing children first)
+	•	You don’t need triggers/audit per row
+	•	You’re okay with AUTO_INCREMENT resetting (common in MariaDB/MySQL)
+
+Why it’s best: fastest, keeps grants, keeps schema exactly the same.
+
+⸻
+
+✅ Use DROP + CREATE if you want a clean rebuild
+
+Pick this if:
+	•	You want to recreate indexes/constraints fresh
+	•	You want to remove triggers / reset permissions intentionally
+	•	You’re doing a controlled environment reset (DEV/UAT)
+
+Caution: In PROD, this is riskier because if the DDL is slightly different or you forget grants, you can break apps.
+
+⸻
+
+The big “blocker”: Foreign keys
+
+If other tables reference it:
+	•	TRUNCATE may fail with FK restrictions.
+	•	DROP may also fail unless you drop dependent tables first.
+
+So the best approach often becomes:
+✅ TRUNCATE child tables first, then parent.
+
+⸻
+
+Practical recommendation for 5M rows (MariaDB/MySQL)
+
+If no foreign keys:
+
+✅ TRUNCATE is the best option.
+
+TRUNCATE TABLE my_table;
+
+If foreign keys exist:
+	•	Truncate in correct order: children → parent
+	•	Or use a controlled approach (sometimes temporarily disable FK checks in non-prod; avoid in prod unless you know the risks).
+
+⸻
+
+Final answer in one line
+
+For 5 million rows:
+	•	Fastest: TRUNCATE (or DROP+CREATE, both very fast)
+	•	Best option generally: TRUNCATE, because it’s fast and keeps the table object/permissions stable
+	•	Avoid: DELETE unless you must delete selectively or need triggers/audit
+
+If you tell me whether this table is referenced by foreign keys and whether this is PROD, I’ll tell you the exact safest sequence (including child/parent order) without guesswork.
+
+
+
+Your approach is broadly right (bulk-load into a staging table, then move into final), and for millions of rows the biggest performance win is exactly what you’re thinking: load first, add indexes/PK later.
+
+Below is a reviewed + slightly improved version that avoids a few common traps.
+
+⸻
+
+Review of your 8-step plan
+
+✅ Steps 1–5 are good
+	1.	Export from DB2 ✅
+	2.	Create staging table in MariaDB without PK/index ✅
+	3.	Load data ✅
+	4.	Create PK ✅
+	5.	Create secondary indexes ✅
+
+This is the standard bulk-load optimization pattern.
+
+⚠️ Step 6 (delete soft-deleted rows in staging)
+
+This is OK, but often you can do better:
+	•	If DB2 export can filter soft_delete=false, do it there (best).
+	•	If not, do it after load as you planned.
+
+But: deleting millions of rows can be expensive. A faster alternative is to insert only non-deleted into final (skip deletes entirely).
+
+⚠️ Steps 7–8 (export staging then import to actual)
+
+You usually don’t need to export/import again inside MariaDB.
+
+Instead of:
+	•	Export staging → import into final
+
+Prefer:
+	•	INSERT INTO final SELECT ... FROM staging ... (fast, in-server, no file I/O)
+	•	or RENAME TABLE strategy when possible.
+
+⸻
+
+Recommended refined approach (faster + simpler)
+
+Option A (Most common + efficient)
+	1.	Export from DB2 (DEL/CSV)
+	2.	Create staging table (no PK, no secondary indexes)
+	3.	Bulk load into staging (LOAD DATA INFILE / your import tool)
+	4.	Data cleanup/transforms in staging (split pipe columns, trim, null handling)
+	5.	Insert into final:
+
+INSERT INTO final_table (col1, col2, account_number, account_indicator, ...)
+SELECT col1, col2,
+       CASE WHEN LOCATE('|', src_col)>0 THEN SUBSTRING_INDEX(src_col,'|',1) ELSE src_col END,
+       CASE WHEN LOCATE('|', src_col)>0 THEN SUBSTRING_INDEX(src_col,'|',-1) ELSE NULL END,
+       ...
+FROM staging
+WHERE soft_delete <> 1;   -- or soft_delete = 0
+
+	6.	Build indexes on final (if final is empty, build them after the insert; if final already has data, plan carefully)
+	7.	Verify (counts/hashes/spot checks)
+	8.	Drop staging
+
+✅ No second export/import needed.
+
+⸻
+
+Your specific questions
+
+1) Primary key: during table creation or after data load?
+
+After data loading is usually faster for big loads.
+
+Why:
+	•	With PK present, every insert updates the PK index (random I/O and overhead)
+	•	Creating PK at the end is a single bulk build (often faster)
+
+Exception:
+If you need PK to:
+	•	enforce uniqueness early, or
+	•	de-duplicate during load
+then create it early (but performance will drop).
+
+Best practice for staging: load first, validate uniqueness, then add PK (if needed).
+
+⸻
+
+2) Index creation: after loading or before?
+
+After loading (almost always).
+
+Same reason: maintaining indexes row-by-row during insert is slow.
+
+So:
+	•	staging: no indexes before load
+	•	final: if final is empty → load then create indexes
+	•	final: if final already has data → depends, but still often load then index (or do online schema changes carefully)
+
+⸻
+
+3) Do I need a primary key for staging table?
+
+Usually NO.
+
+Staging is for:
+	•	raw landing
+	•	transform
+	•	verification
+
+So it can be a heap-like table (no PK) for speed.
+
+When staging PK is useful:
+	•	You need to deduplicate (e.g., PK from source is supposed to be unique and you want the DB to enforce it)
+	•	You will join staging to other staging tables repeatedly and need performance
+	•	You need to track bad rows uniquely (add a surrogate row_id)
+
+A good compromise is:
+	•	Add a simple surrogate key only if needed:
+
+row_id BIGINT AUTO_INCREMENT PRIMARY KEY
+
+This doesn’t enforce business uniqueness but helps troubleshooting.
+
+⸻
+
+Important improvements (based on your earlier “pipe split” case)
+
+Since you have DB2 field like AccountNumber|AccountIndicator:
+
+Do the split in MariaDB staging → final insert (fast, controlled).
+Don’t try to pre-split in the file unless necessary.
+
+Also, instead of “delete soft_delete rows in staging”, you can just:
+	•	keep staging as-is
+	•	insert only non-deleted into final using WHERE soft_delete=0
+
+That avoids a huge delete operation.
+
+⸻
+
+What I would change in your steps (minimal change version)
+
+Your plan, improved:
+	1.	Export DB2 ✅
+	2.	Create staging table in MariaDB without PK/index ✅
+	3.	Load to staging ✅
+	4.	Transform in staging (split pipe, normalize) ✅
+	5.	Create final table (proper PK + indexes) ✅
+	6.	Insert into final from staging with WHERE soft_delete=0 ✅
+	7.	Create indexes after insert (if final empty) ✅
+	8.	Verification ✅
+	9.	Drop staging ✅
+
+This removes the staging export/import loop and reduces total runtime.
+
+⸻
+
+Quick verification checklist (do this for 15M-scale confidence)
+	•	Row counts:
+	•	DB2 total rows
+	•	DB2 active rows (soft_delete=0)
+	•	Maria staging total
+	•	Maria final total
+	•	Null / length validation for split columns
+	•	Duplicate check on intended PK columns before creating PK in final
+	•	Sampling:
+	•	pick 100 random keys from DB2 and verify in Maria
+	•	Optional: checksum/hash by key range (if feasible)
+
+⸻
+
+If you tell me:
+	1.	Is the final table empty initially or already has data?
+	2.	Soft delete column type (0/1? Y/N?)
+	3.	How you load (MariaDB LOAD DATA INFILE, mysqlimport, or app script)?
+
+…I’ll give you an exact SQL script template (staging DDL + load command + insert/select split logic + index build order) that matches your setup.
+
+
+You’re thinking about the right trade-offs. With 15M+ rows on DB2 PROD and no index on soft_delete, the key is: avoid doing extra work on DB2, and avoid doing extra passes in MariaDB.
+
+1) Will a full export disrupt PROD?
+
+A DB2 export is basically a big read/scan. It won’t usually “block logon”, but it can impact:
+	•	disk I/O (table scan)
+	•	bufferpool churn (pushes other useful pages out)
+	•	CPU (formatting/export)
+	•	network/disk if writing off-host
+
+Because soft_delete is not indexed, any filter like WHERE soft_delete=0 is still a full scan. So from DB2’s point of view:
+	•	export all rows vs export with WHERE soft_delete=0
+→ similar scan cost, but the filtered export writes a smaller file (less I/O after the scan).
+
+Best non-disruptive option (if available):
+	•	export from a read replica / HADR standby / restored backup rather than the primary.
+If that’s not available, run on off-peak, and use an isolation that avoids locking (DB2 commonly uses uncommitted read / WITH UR patterns) so you don’t hold locks while scanning.
+
+⸻
+
+2) Is INSERT INTO final SELECT ... FROM staging slower than exporting staging and importing again?
+
+In most cases: INSERT…SELECT is faster and cleaner than “export staging → import final”, because:
+
+Export+Import path (two extra passes):
+	•	reads staging and writes a file (disk heavy)
+	•	then reads file again and parses it again into final
+	•	more filesystem I/O + CSV parsing twice
+
+INSERT…SELECT path (in-server):
+	•	reads staging and writes final directly inside MariaDB
+	•	no intermediate file
+	•	can apply transforms + filtering in one pass
+
+✅ So yes: INSERT…SELECT is usually the better option.
+
+The only time export/import can win is if your import method is using a highly-optimized bulk loader and your INSERT…SELECT is forced into slow row-by-row work because of indexes/constraints/triggers on the final table.
+
+⸻
+
+3) If INSERT…SELECT is faster, can we do WHERE soft_delete=0? Is it better?
+
+Yes — and it’s usually the best design here.
+
+Instead of:
+	•	load all rows into staging
+	•	delete soft_delete rows in staging (expensive)
+	•	then move everything
+
+Do this:
+	•	load all rows into staging
+	•	insert only active rows into final:
+
+INSERT INTO final_table (col1, col2, acct_no, acct_ind, ...)
+SELECT col1, col2,
+       CASE WHEN LOCATE('|', acct_src) > 0 THEN SUBSTRING_INDEX(acct_src,'|',1) ELSE acct_src END AS acct_no,
+       CASE WHEN LOCATE('|', acct_src) > 0 THEN SUBSTRING_INDEX(acct_src,'|',-1) ELSE NULL END AS acct_ind,
+       ...
+FROM staging_table
+WHERE soft_delete = 0;
+
+Why it’s better:
+	•	avoids a massive DELETE on staging
+	•	writes fewer rows into final
+	•	final table stays “clean” from the beginning
+
+⸻
+
+The most important performance rule (MariaDB side)
+
+To make INSERT…SELECT fast for 15M rows:
+
+✅ Final table should have no secondary indexes during load
+	•	Create final table with columns, but delay indexes until after data is loaded.
+	•	If you need a PK, it’s still usually faster to add it after the bulk insert (especially if it’s large and causes random writes).
+
+Recommended order (fastest):
+	1.	Create staging (no indexes)
+	2.	Load staging (bulk)
+	3.	Create final table (structure only; minimal constraints)
+	4.	INSERT INTO final SELECT ... WHERE soft_delete=0
+	5.	Add PK
+	6.	Add secondary indexes (including soft_delete if you still need it in final)
+	7.	Verify
+
+If final must enforce uniqueness during insert, then you may need PK earlier — but that slows the insert.
+
+⸻
+
+DB2-side filtering: should you filter at export time?
+
+Given no index, filtering doesn’t save DB2 scan cost, but it can reduce:
+	•	export file size
+	•	time to transfer
+	•	staging load time
+
+So you have two acceptable strategies:
+
+Strategy A (lowest DB2 complexity, more Maria work)
+	•	Export all rows
+	•	Load staging all rows
+	•	Filter during INSERT…SELECT in Maria
+
+Strategy B (smaller file, faster downstream, same DB2 scan)
+	•	Export with WHERE soft_delete=0 (still scans)
+	•	Load staging fewer rows
+	•	Insert into final (less work)
+
+If your bottleneck is file size / load time, pick Strategy B.
+If your bottleneck is DB2 impact, both are similar (scan is the expensive part).
+
+⸻
+
+One more high-impact suggestion
+
+If the final table is new and you don’t need staging after validation, you can even do:
+	•	Load into a “final_new” table
+	•	Build indexes
+	•	Swap tables with RENAME TABLE (near-instant cutover)
+
+This avoids long downtime on the real final table.
+
+⸻
+
+Bottom line for your case
+	•	Yes, INSERT…SELECT ... WHERE soft_delete=0 is a better option than exporting staging and importing again.
+	•	Keep indexes/PK off during load, then create them after.
+	•	DB2 filtering won’t avoid the scan (no index), but can reduce file size and downstream time.
+
+If you tell me how you’re exporting from DB2 (DB2 EXPORT, db2move, backup restore + export, etc.) and what MariaDB storage engine (likely InnoDB), I’ll give you an exact “minimum-impact” runbook with commands + timings + verification queries.
+
+
+
+For 15M rows, reconciliation has to be fast, provable, and not “compare row-by-row manually.” The usual pattern is:
+	1.	Count-level checks (cheap, catches big misses)
+	2.	Key/uniqueness checks (catches duplicates & missing keys)
+	3.	Aggregate/hash checks by buckets (catches subtle data differences with high confidence)
+	4.	Targeted sampling (human-readable spot validation)
+	5.	Exception tables (store mismatches so you can fix/re-run only the bad parts)
+
+Below is a concrete reconciliation plan specifically for staging → final in MariaDB when you do:
+
+INSERT INTO final ... SELECT ... FROM staging WHERE soft_delete=0;
+
+
+⸻
+
+A) Baseline record-count reconciliation
+
+1) Total rows
+
+SELECT COUNT(*) AS staging_total FROM staging;
+SELECT COUNT(*) AS final_total   FROM final;
+
+2) Active rows vs final rows (this is your core truth)
+
+SELECT COUNT(*) AS staging_active
+FROM staging
+WHERE soft_delete = 0;
+
+SELECT COUNT(*) AS final_total
+FROM final;
+
+✅ Expect: staging_active == final_total
+
+3) Soft-delete rows should be excluded
+
+SELECT COUNT(*) AS staging_deleted
+FROM staging
+WHERE soft_delete <> 0;
+
+This is mostly sanity.
+
+⸻
+
+B) Key integrity checks (missing & duplicates)
+
+Assume you have a business key (or PK candidate) like id (or composite key).
+
+1) Duplicates in staging among active rows (must be zero before final PK)
+
+SELECT id, COUNT(*) c
+FROM staging
+WHERE soft_delete = 0
+GROUP BY id
+HAVING c > 1
+LIMIT 20;
+
+If this returns rows, you cannot safely create PK on final without deciding the dedupe rule.
+
+2) Duplicates in final (should be zero if PK exists)
+
+SELECT id, COUNT(*) c
+FROM final
+GROUP BY id
+HAVING c > 1
+LIMIT 20;
+
+3) Missing keys in final (anti-join)
+
+This is the most useful “did we lose anything?” check.
+
+SELECT s.id
+FROM staging s
+LEFT JOIN final f ON f.id = s.id
+WHERE s.soft_delete = 0
+  AND f.id IS NULL
+LIMIT 100;
+
+✅ Expect: 0 rows
+
+4) Extra keys in final that shouldn’t be there
+
+SELECT f.id
+FROM final f
+LEFT JOIN staging s ON s.id = f.id AND s.soft_delete = 0
+WHERE s.id IS NULL
+LIMIT 100;
+
+✅ Expect: 0 rows
+
+If the final table existed earlier and already had records, this check needs to be constrained to the migrated range/batch.
+
+⸻
+
+C) Content validation beyond keys (fast + strong)
+
+Row counts and keys can match even if a column was transformed wrongly (like your pipe-split case). For 15M rows, do bucketed checksums.
+
+1) Create a deterministic “row fingerprint” (hash)
+
+Pick the columns that matter most (include the ones transformed).
+
+Example (adjust columns):
+
+-- Staging fingerprint (after applying the same split logic as your insert)
+SELECT
+  MOD(CRC32(CAST(id AS CHAR)), 1000) AS bucket,
+  COUNT(*) AS cnt,
+  BIT_XOR(CRC32(CONCAT_WS('#',
+      id,
+      col1,
+      col2,
+      CASE WHEN LOCATE('|', acct_src)>0 THEN SUBSTRING_INDEX(acct_src,'|',1) ELSE acct_src END,
+      CASE WHEN LOCATE('|', acct_src)>0 THEN SUBSTRING_INDEX(acct_src,'|',-1) ELSE '' END
+  ))) AS bucket_xor
+FROM staging
+WHERE soft_delete = 0
+GROUP BY bucket
+ORDER BY bucket;
+
+And in final:
+
+SELECT
+  MOD(CRC32(CAST(id AS CHAR)), 1000) AS bucket,
+  COUNT(*) AS cnt,
+  BIT_XOR(CRC32(CONCAT_WS('#',
+      id,
+      col1,
+      col2,
+      acct_number,
+      COALESCE(acct_indicator,'')
+  ))) AS bucket_xor
+FROM final
+GROUP BY bucket
+ORDER BY bucket;
+
+Then compare cnt and bucket_xor bucket-by-bucket.
+
+✅ If both match for all buckets, it’s a very strong signal the data matches (not mathematically perfect, but excellent in practice for migration QA).
+
+Why buckets?
+	•	You avoid one huge hash calculation that can be expensive
+	•	Buckets give you pinpoint: “bucket 317 is mismatching” → debug just that slice
+
+If BIT_XOR/CRC32 feels too collision-prone for your risk appetite, use SHA2 but it’s heavier. CRC-based bucket XOR is widely used for speed.
+
+⸻
+
+D) Column-level sanity checks (cheap, catches mapping mistakes)
+
+For each important column:
+	•	null rates
+	•	min/max
+	•	distinct counts (for low-cardinality fields)
+
+Examples:
+
+-- Null rate
+SELECT
+  SUM(acct_number IS NULL) AS nulls,
+  COUNT(*) AS total
+FROM final;
+
+-- Range sanity for a numeric column
+SELECT MIN(amount), MAX(amount) FROM final;
+
+-- Distinct sanity for a status field
+SELECT status, COUNT(*) FROM final GROUP BY status;
+
+Compare these with staging using the same transformations/filters.
+
+⸻
+
+E) Sampling (human validation, not too much)
+
+1) Random sample of keys
+
+SELECT id
+FROM staging
+WHERE soft_delete = 0
+ORDER BY RAND()
+LIMIT 200;
+
+Then verify those IDs in final:
+
+SELECT * FROM final WHERE id IN (...);
+
+2) Edge-case sample
+
+Always include:
+	•	rows where acct_src contains |
+	•	rows where acct_src is empty/null
+	•	extreme dates, extreme amounts
+
+Example:
+
+SELECT id, acct_src
+FROM staging
+WHERE soft_delete = 0
+  AND acct_src LIKE '%|%'
+LIMIT 200;
+
+
+⸻
+
+F) Build an “exceptions table” (very practical)
+
+Create a table to store mismatches so you can track issues:
+
+CREATE TABLE recon_exceptions (
+  id BIGINT,
+  issue VARCHAR(50),
+  details VARCHAR(1000),
+  created_ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+If missing keys found:
+
+INSERT INTO recon_exceptions (id, issue, details)
+SELECT s.id, 'MISSING_IN_FINAL', 'present in staging(active) but not in final'
+FROM staging s
+LEFT JOIN final f ON f.id = s.id
+WHERE s.soft_delete = 0
+  AND f.id IS NULL;
+
+Now you have a persistent audit trail.
+
+⸻
+
+Recommended reconciliation “levels” for your case (15M)
+
+Level 1 (must-do)
+	•	staging_active == final_count
+	•	missing-in-final = 0
+	•	duplicates in staging active = 0 (if you plan PK)
+
+Level 2 (strong confidence)
+	•	bucketed checksum compare (1000 buckets)
+
+Level 3 (high assurance)
+	•	sample + edge-cases
+	•	column-level sanity checks
+
+⸻
+
+If you tell me your actual PK/business key (single column or composite) and the top 10 important columns, I can generate the exact SQL reconciliation pack tailored to your schema (including the pipe-split logic you used), so you can run it as a repeatable script after each migration run.
+
+
+Yes — you can and should run the duplicate check on the staging table before creating the PK. That’s actually the right time to do it.
+
+1) Duplicate check in staging (before PK)
+
+Use:
+
+SELECT id, COUNT(*) AS c
+FROM staging
+WHERE soft_delete = 0
+GROUP BY id
+HAVING c > 1
+LIMIT 20;
+
+✅ This tells you whether id is truly unique among “active” rows before you enforce it in final.
+
+⸻
+
+Does id need to be PK or indexed to run this GROUP BY?
+
+Not required, but it affects speed:
+	•	If no index on id, MariaDB will do a full scan + sort/temporary table → slower on 15M rows, but still doable.
+	•	If you add an index on id, the grouping can be significantly faster (depending on engine, memory, and plan).
+
+Best practice for staging
+
+Keep staging with no indexes for fastest load.
+Then, only if you need heavy reconciliation queries, create a temporary index after load:
+
+CREATE INDEX idx_stage_id ON staging(id);
+
+If your uniqueness check is important (it is), adding idx_stage_id after load is reasonable.
+
+What about indexing (soft_delete, id)?
+
+If you always filter by soft_delete = 0 first, this is even better:
+
+CREATE INDEX idx_stage_soft_id ON staging(soft_delete, id);
+
+This helps MariaDB quickly isolate active rows and then group by id.
+
+But: creating this index also takes time on 15M rows, so do it only if you’ll run several reconciliation queries.
+If you run only one query, you can skip the index and accept a longer runtime.
+
+⸻
+
+In DB2, will this take more time?
+
+Yes — and more importantly, it can stress PROD.
+
+Because you said:
+	•	DB2 PROD
+	•	15M+ rows
+	•	no index on soft_delete
+
+Then any query like:
+
+SELECT id, COUNT(*)
+FROM prod_table
+WHERE soft_delete = 0
+GROUP BY id
+HAVING COUNT(*) > 1;
+
+will likely cause:
+	•	a full table scan
+	•	plus a big sort/group operation
+	•	with CPU + I/O impact (can affect online workload)
+
+So avoid doing this on PROD DB2 unless:
+	•	you can run it on a read replica / HADR standby / restored backup
+	•	or it’s a carefully planned off-peak job
+
+✅ Safer approach: do this check in MariaDB staging after loading.
+
+⸻
+
+Soft delete condition: true or false?
+
+Use the condition that matches what you’re validating:
+
+If final contains only active rows
+
+Check duplicates on active rows:
+
+WHERE soft_delete = 0
+
+If final contains everything (active + deleted)
+
+Then check duplicates on all rows (or use your business rule).
+
+⸻
+
+What if duplicates exist only because soft-deleted rows share same id?
+
+That’s common. You might have:
+	•	one active row and one soft-deleted row with same id (acceptable)
+	•	multiple active rows with same id (not acceptable if id is PK)
+
+So your best validation is:
+
+SELECT id, COUNT(*) c
+FROM staging
+WHERE soft_delete = 0
+GROUP BY id
+HAVING c > 1;
+
+
+⸻
+
+Practical recommendation
+	•	✅ Do the duplicate check in MariaDB staging
+	•	✅ If it’s slow, create INDEX(soft_delete, id) on staging after load
+	•	❌ Don’t run heavy GROUP BY duplicate checks on DB2 PROD (no index = expensive)
+
+If you share:
+	•	is id truly your PK candidate (or composite)?
+	•	table size ~15M only or much larger?
+I can suggest the exact minimal indexes to create on staging purely for reconciliation (and which ones to avoid).
+
+Yes — if staging has duplicates for your intended primary key, then creating the PK on final after the bulk load will fail (because PK requires uniqueness). So you need a dedupe strategy before (or during) the move.
+
+Here are the practical, production-friendly ways to handle it.
+
+⸻
+
+Step 1: Decide what “duplicate” means
+
+Usually duplicates fall into one of these buckets:
+	1.	Exact duplicates (all columns same) → safe to keep one
+	2.	Multiple versions per id (different values) → keep the “latest” or “best” row
+	3.	Soft-delete variations → keep active (soft_delete=0) over deleted
+
+You already plan to move only soft_delete=0, so your main problem is:
+
+duplicates among soft_delete=0 rows for the same id
+
+⸻
+
+Option A (Best for big data): Deduplicate in staging into a clean staging table
+
+A1) Create a “clean” staging table that keeps 1 row per id
+
+Pick a rule. Most common rule: keep the row with max(updated_ts) or max(load_ts) or max(sequence).
+
+Example: keep latest by updated_ts:
+
+CREATE TABLE staging_clean AS
+SELECT s.*
+FROM staging s
+JOIN (
+  SELECT id, MAX(updated_ts) AS max_ts
+  FROM staging
+  WHERE soft_delete = 0
+  GROUP BY id
+) x
+ON x.id = s.id AND x.max_ts = s.updated_ts
+WHERE s.soft_delete = 0;
+
+⚠️ If ties exist (same id + same updated_ts), you may still have duplicates. Then add a tie-breaker (e.g., max(row_id)).
+
+A2) Move staging_clean → final
+
+INSERT INTO final (..columns..)
+SELECT ..columns..
+FROM staging_clean;
+
+A3) Now build PK on final safely
+
+ALTER TABLE final ADD PRIMARY KEY (id);
+
+✅ Pros: deterministic, auditable, easiest to reason about
+❌ Cons: needs extra storage/time (but safe for 15M)
+
+⸻
+
+Option B: Deduplicate while inserting into final using a GROUP rule
+
+If you have a clear “winner” rule, you can do it in one step:
+
+Example: keep row with MAX(updated_ts) per id:
+
+INSERT INTO final (..)
+SELECT s..
+FROM staging s
+JOIN (
+  SELECT id, MAX(updated_ts) AS max_ts
+  FROM staging
+  WHERE soft_delete = 0
+  GROUP BY id
+) x
+ON s.id = x.id AND s.updated_ts = x.max_ts
+WHERE s.soft_delete = 0;
+
+✅ No extra table
+❌ Still heavy join; tie handling needed
+
+⸻
+
+Option C: Use final with PRIMARY KEY from the beginning + “upsert”
+
+This is often the simplest if your rule is “latest wins” and you can express it.
+
+C1) Create final with PK upfront
+
+CREATE TABLE final (
+  id BIGINT NOT NULL,
+  ...,
+  updated_ts DATETIME,
+  PRIMARY KEY (id)
+) ENGINE=InnoDB;
+
+C2) Load using INSERT ... ON DUPLICATE KEY UPDATE
+
+INSERT INTO final (id, ..., updated_ts)
+SELECT id, ..., updated_ts
+FROM staging
+WHERE soft_delete = 0
+ON DUPLICATE KEY UPDATE
+  -- choose columns from the row you want to keep
+  updated_ts = GREATEST(final.updated_ts, VALUES(updated_ts)),
+  col1 = IF(VALUES(updated_ts) >= final.updated_ts, VALUES(col1), final.col1),
+  col2 = IF(VALUES(updated_ts) >= final.updated_ts, VALUES(col2), final.col2);
+
+✅ Pros: guarantees uniqueness as you load
+❌ Cons: can be slower than pure bulk insert (because it’s doing per-row PK checks + updates)
+
+For 15M rows, this is OK if duplicates are rare; if duplicates are many, it can get slow.
+
+⸻
+
+Option D (If duplicates are only exact duplicates): DISTINCT / hash
+
+If duplicates are literally identical rows:
+
+INSERT INTO final (...)
+SELECT DISTINCT ...
+FROM staging
+WHERE soft_delete = 0;
+
+✅ Very simple
+❌ Can be expensive; only works for exact duplicates (not conflicting values)
+
+⸻
+
+What I recommend for your case (15M, bulk load, want performance)
+
+Use Option A (clean staging table) unless storage is extremely tight.
+
+Reason:
+	•	You can prove which record you kept for each id
+	•	You can keep a duplicate audit table
+	•	PK creation will never surprise-fail at the end
+
+⸻
+
+Add an “audit” for duplicates (very important)
+
+Before dedupe, store duplicates for investigation:
+
+CREATE TABLE staging_dupes AS
+SELECT s.*
+FROM staging s
+JOIN (
+  SELECT id
+  FROM staging
+  WHERE soft_delete = 0
+  GROUP BY id
+  HAVING COUNT(*) > 1
+) d ON d.id = s.id
+WHERE s.soft_delete = 0;
+
+Now you can answer: how many duplicates, which ids, why?
+
+⸻
+
+Key point about PK creation timing
+	•	If you bulk-load into final without PK, then:
+	•	PK add will fail if duplicates exist
+	•	you’ll have to clean final and retry (wasteful)
+
+So if duplicates are possible:
+	•	either dedupe before insert, or
+	•	create PK first and use upsert logic
+
+⸻
+
+Tell me these 3 fields and I’ll give you the exact SQL
+	1.	What is the dedupe rule you want?
+	•	latest by updated_ts?
+	•	highest sequence?
+	•	first row wins?
+	2.	Do you have a reliable timestamp / sequence column in DB2?
+	3.	Is id single PK or composite (id + tenant_id etc.)?
+
+With that, I’ll produce a ready-to-run migration + dedupe + reconciliation script.
+
+
+If you don’t have any “latest” indicator (no timestamp, sequence, version), then duplicates are fundamentally ambiguous — you can’t correctly choose the “right” row by logic. So the “right solution” is:
+	1.	Prevent the migration from silently picking a random row, and
+	2.	Make duplicates visible + reviewable, while still allowing the bulk of good data to move.
+
+✅ Yes: creating final with PK and inserting with “ignore duplicates” is technically workable — but it’s risky
+
+Because which row gets kept is arbitrary (depends on load order / file order / engine behavior). That’s fine only if:
+	•	duplicates are exact duplicates (same values), or
+	•	business says “any one is acceptable”.
+
+If duplicates have different values, using IGNORE is essentially data-loss without trace unless you audit.
+
+So if you do it, do it with an audit plan.
+
+⸻
+
+The safest practical pattern (recommended)
+
+Step 0: Detect how bad duplicates are
+
+SELECT COUNT(*) AS dup_ids
+FROM (
+  SELECT id
+  FROM staging
+  WHERE soft_delete = 0
+  GROUP BY id
+  HAVING COUNT(*) > 1
+) x;
+
+Also measure volume:
+
+SELECT SUM(c) AS dup_rows_total
+FROM (
+  SELECT COUNT(*) c
+  FROM staging
+  WHERE soft_delete = 0
+  GROUP BY id
+  HAVING COUNT(*) > 1
+) x;
+
+
+⸻
+
+Option 1 (Recommended): Load clean rows + quarantine duplicates
+
+This avoids random selection and keeps the migration honest.
+
+1A) Move only IDs that are unique
+
+INSERT INTO final (id, col1, col2, ...)
+SELECT s.id, s.col1, s.col2, ...
+FROM staging s
+JOIN (
+  SELECT id
+  FROM staging
+  WHERE soft_delete = 0
+  GROUP BY id
+  HAVING COUNT(*) = 1
+) u ON u.id = s.id
+WHERE s.soft_delete = 0;
+
+1B) Put duplicates into a separate table for manual/business resolution
+
+CREATE TABLE staging_dupes AS
+SELECT s.*
+FROM staging s
+JOIN (
+  SELECT id
+  FROM staging
+  WHERE soft_delete = 0
+  GROUP BY id
+  HAVING COUNT(*) > 1
+) d ON d.id = s.id
+WHERE s.soft_delete = 0;
+
+✅ Pros:
+	•	final data = guaranteed unique and clean
+	•	duplicates are not lost
+	•	you can resolve duplicates later and insert them with business approval
+
+❌ Cons:
+	•	requires follow-up process for duplicate IDs
+
+This is the best “no latest flag” answer.
+
+⸻
+
+Option 2: If duplicates are expected to be identical → dedupe by exact row content
+
+If duplicates are genuinely identical rows, you can keep one safely.
+
+Example approach:
+	•	Create a “row signature” hash and keep one row per (id, signature)
+
+But in practice with many columns this is heavy and still needs care.
+
+⸻
+
+Option 3: Create final with PK and use INSERT IGNORE (allowed, but only with audit)
+
+If business accepts “first row wins”, then do:
+
+3A) Create final with PK upfront
+
+CREATE TABLE final (
+  id BIGINT NOT NULL,
+  ...,
+  PRIMARY KEY (id)
+) ENGINE=InnoDB;
+
+3B) Insert, ignoring duplicates
+
+INSERT IGNORE INTO final (id, col1, col2, ...)
+SELECT id, col1, col2, ...
+FROM staging
+WHERE soft_delete = 0;
+
+✅ Pros:
+	•	simplest
+	•	avoids migration failure
+	•	fast enough in many cases
+
+⚠️ Cons:
+	•	keeps whichever duplicate appears first
+	•	silently drops the rest unless you capture them
+
+3C) Audit what got dropped (must-do if you use IGNORE)
+
+After insert:
+
+CREATE TABLE final_dup_rejects AS
+SELECT s.*
+FROM staging s
+LEFT JOIN final f ON f.id = s.id
+WHERE s.soft_delete = 0
+  AND f.id IS NULL;
+
+This table will contain rows that did not make it into final (mostly dupes, but also any failed conversions if you have them).
+
+⸻
+
+What is the “right solution”?
+
+Given your constraints (no latest field), the most correct and defensible approach is:
+
+✅ Quarantine duplicates, load only unique IDs
+	•	It avoids random choice
+	•	It preserves all raw conflicting rows
+	•	It gives the business/data owner a chance to decide resolution rules
+
+Only use INSERT IGNORE if you have explicit agreement that:
+	•	duplicates are identical, or
+	•	any one row is acceptable, and you keep an audit table.
+
+⸻
+
+Small but important note about “soft_delete”
+
+Always do the duplicate detection on the same population you load:
+
+WHERE soft_delete = 0
+
+Because duplicates might only exist due to deleted history rows, which may be acceptable.
+
+⸻
+
+If you want, I can propose a resolution rule that doesn’t need “latest”
+
+Sometimes teams use a deterministic tie-breaker even without timestamps, for example:
+	•	prefer row with more non-null fields
+	•	prefer row with higher “quality score”
+	•	prefer row with a valid pattern (e.g., AccountIndicator not null)
+	•	prefer lexicographically max/min of a stable field
+
+It’s not “latest”, but it can be a business-quality rule.
+
+If you share 3–5 key columns (the ones that differ across duplicates), I can suggest a safe deterministic scoring rule and the SQL to implement it.
+
+
