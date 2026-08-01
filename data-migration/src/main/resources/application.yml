@@ -1,0 +1,43 @@
+spring:
+  application:
+    name: personalisation-migration
+
+migration:
+  enabled: true
+  scheduler-delay-ms: 5000
+  max-customers-per-run: 100000
+  candidate-fetch-size: 120000
+  customer-chunk-size: 500
+  claim-jdbc-batch-size: 200
+  status-update-chunk-size: 500
+  maria-upsert-batch-size: 500
+  async-threads: 2
+  executor-queue-capacity: 20
+  max-retries: 3
+  heartbeat-interval-seconds: 60
+  stale-timeout-minutes: 30
+  skip-existing-customers: false
+  worker-prefix: DCE
+
+app:
+  datasource:
+    db2:
+      jdbc-url: jdbc:db2://db2-host:50000/SOURCEDB
+      username: user
+      password: password
+      driver-class-name: com.ibm.db2.jcc.DB2Driver
+      maximum-pool-size: 8
+      minimum-idle: 2
+    maria:
+      jdbc-url: jdbc:mariadb://maria-host:3306/targetdb
+      username: user
+      password: password
+      driver-class-name: org.mariadb.jdbc.Driver
+      maximum-pool-size: 8
+      minimum-idle: 2
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
